@@ -72,6 +72,7 @@ jobs:
             Shot $page
             Stop-Process $p -Force
             Start-Sleep 1
+            if (Test-Path "$env:APPDATA\WXLinks\崩溃记录.txt") { throw "界面出错了（$page 页），见下面的崩溃记录和截图" }
           }
 
       - name: 第一次打开自动安装
@@ -111,6 +112,14 @@ jobs:
           $p = Start-Process dist/WXLinks-windows.exe -ArgumentList '--engine', '--ocr-test', '--dir', "$env:RUNNER_TEMP\wxdata" -RedirectStandardOutput $out -NoNewWindow -Wait -PassThru
           Get-Content $out -Encoding utf8
           if ($p.ExitCode -ne 0) { throw "文字识别自检没通过，退出码 $($p.ExitCode)" }
+
+      - name: 出错时打印崩溃记录和系统日志
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-Content "$env:APPDATA\WXLinks\崩溃记录.txt" -Encoding utf8 -ErrorAction SilentlyContinue
+          Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = '.NET Runtime', 'Application Error' } -MaxEvents 4 -ErrorAction SilentlyContinue |
+            Format-List TimeCreated, ProviderName, Message
 
       - uses: actions/upload-artifact@v4
         with:
