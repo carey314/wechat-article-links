@@ -497,9 +497,18 @@ func visibleCards(_ boxes: [TextBox]) -> (cards: [Card], unreadable: [String]) {
         if let d = date { above = above.filter { $0.rect.minY > d.rect.maxY } }
 
         var title: TextBox?
-        if let near = above.first, near.rect.minY >= stat.rect.minY - 45, normalize(rowText(boxes, near, left: left)).count >= 6 {
-            title = near
-        } else if date != nil {
+        var tail = ""   // 标题折成两行、第二行很短（比如「更新」）时，接在第一行后面
+        if let near = above.first, near.rect.minY >= stat.rect.minY - 45 {
+            let nearText = rowText(boxes, near, left: left)
+            if normalize(nearText).count >= 6 {
+                title = near
+            } else if !nearText.contains("展开") && !nearText.contains("收起") && above.count > 1
+                        && above[1].rect.maxY >= near.rect.minY - 12 && normalize(rowText(boxes, above[1], left: left)).count >= 6 {
+                title = above[1]
+                tail = nearText
+            }
+        }
+        if title == nil && date != nil {
             title = above.last   // 日期下面第一行
         }
         guard let t = title else {
@@ -508,7 +517,7 @@ func visibleCards(_ boxes: [TextBox]) -> (cards: [Card], unreadable: [String]) {
             continue
         }
         guard Double(t.rect.minY) >= top else { continue }   // 标题被顶上挡住了，上一屏已经完整露过
-        let text = rowText(boxes, t, left: left)
+        let text = rowText(boxes, t, left: left) + tail
         guard normalize(text).count >= 4 else {
             unreadable.append("\(stat.text)，在窗口第 \(Int(stat.rect.minY)) 点")
             continue
@@ -908,6 +917,28 @@ if let i = CommandLine.arguments.firstIndex(of: "--test-dots"), i + 2 < CommandL
     var r = CGRect(origin: .zero, size: img.size)
     let cg = img.cgImage(forProposedRect: &r, context: nil, hints: nil)!
     print("「···」中心离图左边：", dotsCenterX(cg, ptWidth: Double(CommandLine.arguments[i + 2])!).map { String(format: "%.1f 点", $0) } ?? "没找到")
+    exit(0)
+}
+
+/// 测试用：--test-cards <文件>，从文件读一屏认出的字（第一行「WIN<TAB>宽<TAB>高」，之后每行「x y w h 文字」用 TAB 分开），
+/// 打印认出的卡片和翻页计划；和 Windows 版的同名测试比对，保证两边规则一样
+if let i = CommandLine.arguments.firstIndex(of: "--test-cards"), i + 1 < CommandLine.arguments.count {
+    let lines = ((try? String(contentsOfFile: CommandLine.arguments[i + 1], encoding: .utf8)) ?? "").split(separator: "\n")
+    var boxes: [TextBox] = []
+    for l in lines {
+        let f = l.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        if f.first == "WIN", f.count >= 3 { win = CGRect(x: 0, y: 0, width: Double(f[1])!, height: Double(f[2])!); continue }
+        guard f.count >= 5, let x = Double(f[0]), let y = Double(f[1]), let w = Double(f[2]), let h = Double(f[3]) else { continue }
+        boxes.append(TextBox(text: f[4...].joined(separator: "\t"), rect: CGRect(x: x, y: y, width: w, height: h)))
+    }
+    print("PROFILE\t\(isProfilePage(boxes) ? "是" : "否")")
+    let (cards, notRead) = visibleCards(boxes)
+    for c in cards { print("CARD\t\(c.key)\t\(c.title)\t\(Int(c.target.x.rounded()))\t\(Int(c.target.y.rounded()))") }
+    for u in notRead { print("UNREAD\t\(u.components(separatedBy: "，").first ?? u)") }
+    let (top, bottom) = clickableRange(boxes)
+    let plan = plannedScroll(boxes)
+    print("RANGE\t\(Int(top.rounded()))\t\(Int(bottom.rounded()))")
+    print("PLAN\t\(Int(plan.points.rounded()))\t\(plan.anchor?.text ?? "")")
     exit(0)
 }
 
