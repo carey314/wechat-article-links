@@ -235,6 +235,76 @@ func activeTab() -> CGRect? {
     return CGRect(x: l, y: top, width: r - l, height: bottom - top)
 }
 
+/// 图里每个像素的亮度（0~255），按行排
+func brightness(_ cg: CGImage) -> [UInt8] {
+    let w = cg.width, h = cg.height
+    var px = [UInt8](repeating: 0, count: w * h * 4)
+    if let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                           space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+    }
+    var out = [UInt8](repeating: 0, count: w * h)
+    for i in 0..<(w * h) {
+        let sum = Int(px[i * 4]) + Int(px[i * 4 + 1]) + Int(px[i * 4 + 2])
+        out[i] = UInt8(sum / 3)
+    }
+    return out
+}
+
+/// 在一张「标签右半边」的截图里找「···」：标签灰底范围内最右边那团深色图形（外圈加三个点，宽十几点）。
+/// 它左边的「⊗ / ↻」（停止加载 / 刷新）颜色浅，不会被认成它。ptWidth 是这张图对应多少点宽，返回中心离图左边多少点
+func dotsCenterX(_ cg: CGImage, ptWidth: Double) -> Double? {
+    let w = cg.width, h = cg.height
+    let v = brightness(cg)
+    let s = Double(w) / ptWidth
+    let bgRow = min(h - 1, Int(3 * s))   // 标签顶上 3 点：在图标上面，只有底色
+    let rows = Int(Double(h) * 0.25)..<Int(Double(h) * 0.85)
+    var cols = [Bool](repeating: false, count: w)
+    for x in 0..<w {
+        let bg = Int(v[bgRow * w + x])
+        guard bg >= 226 && bg <= 245 else { continue }   // 不在当前标签的灰底上
+        cols[x] = rows.contains { v[$0 * w + x] < 170 }
+    }
+    // 把深色的列连成一团一团（中间断开 2 点以内算一团）
+    var clusters: [(Int, Int)] = []
+    var x = 0
+    while x < w {
+        guard cols[x] else { x += 1; continue }
+        var end = x
+        var gap = 0
+        var k = x + 1
+        while k < w && gap <= Int(2 * s) {
+            if cols[k] { end = k; gap = 0 } else { gap += 1 }
+            k += 1
+        }
+        clusters.append((x, end))
+        x = end + 1
+    }
+    guard let c = clusters.last(where: { Double($0.1 - $0.0) / s >= 8 && Double($0.1 - $0.0) / s <= 30 }) else { return nil }
+    return Double(c.0 + c.1) / 2 / s
+}
+
+/// 当前标签上「···」按钮的中心（窗口内坐标）；找不到就退回「右边缘往左 14 点」
+func dotsButton(_ tab: CGRect) -> CGPoint {
+    let region = CGRect(x: tab.minX + tab.width * 0.4, y: tab.minY, width: tab.width * 0.6 + 60, height: tab.height)
+    if let cg = capture(region), let cx = dotsCenterX(cg, ptWidth: Double(region.width)) {
+        return CGPoint(x: Double(region.minX) + cx, y: Double(tab.midY))
+    }
+    return CGPoint(x: Double(tab.maxX) - 14, y: Double(tab.midY))
+}
+
+/// 标签刚打开时大小还在变（有动画），连着两次量到一样的才算数
+func settledTab(near tab: CGRect) -> CGRect {
+    var last = tab
+    for _ in 0..<8 {
+        usleep(150_000)
+        guard let t = activeTab(), abs(t.minX - tab.minX) < 40 else { continue }
+        if abs(t.width - last.width) <= 2 && abs(t.minX - last.minX) <= 2 { return t }
+        last = t
+    }
+    return last
+}
+
 // MARK: - 鼠标键盘
 
 var lastPos = CGPoint.zero
@@ -317,16 +387,28 @@ func isProfilePage(_ boxes: [TextBox]) -> Bool {
 }
 
 /// 确认停在公众号主页，返回主页标签位置和整屏认字结果；开着文章（比如误点开的）就先关掉
+var lastProfileTab: CGRect?   // 上一次确认过的公众号主页标签，用来认出右边多开着的文章
+
 func ensureProfile() throws -> (tab: CGRect, boxes: [TextBox]) {
-    for _ in 0..<4 {
+    var noTab = 0
+    for _ in 0..<6 {
         try refreshWindow()
-        guard let tab = activeTab() else { throw StopError(reason: "认不出微信的标签栏：请确认微信停在公众号主页；如果电脑是深色模式，请先切到浅色模式") }
+        guard let tab = activeTab() else {
+            // 刚切回来、窗口还在动画，或者有菜单挡着：收起菜单、把窗口拉到前面再看几次
+            noTab += 1
+            if noTab >= 3 { throw StopError(reason: "认不出微信的标签栏：请确认微信停在公众号主页；如果电脑是深色模式，请先切到浅色模式") }
+            pressEscape()
+            bringWeChatFront()
+            usleep(800_000)
+            continue
+        }
         let boxes = snapshot()
-        if isProfilePage(boxes) { return (tab, boxes) }
+        if isProfilePage(boxes) { lastProfileTab = tab; return (tab, boxes) }
         let top = boxes.filter { $0.rect.minY < 420 }
-        // 文章页标题下面有「2026年10月15日」这样的日期
-        let isArticle = top.contains { $0.rect.minY < 200 && $0.text.range(of: "\\d{4}年\\d{1,2}月\\d{1,2}日", options: .regularExpression) != nil }
-        if isArticle && tab.minX > 150 {
+        // 文章页标题下面有「2026年10月15日」这样的日期；视频文章顶上是视频，看不到日期，就看它是不是开在主页标签右边
+        let hasDate = top.contains { $0.rect.minY < 200 && $0.text.range(of: "\\d{4}年\\d{1,2}月\\d{1,2}日", options: .regularExpression) != nil }
+        let rightOfProfile = lastProfileTab.map { tab.minX > $0.minX + 60 } ?? false
+        if (hasDate && tab.minX > 150) || rightOfProfile {
             log("发现开着一篇文章，先关掉它")
             try move(Double(tab.minX) + 15, Double(tab.midY))
             usleep(250_000)
@@ -582,11 +664,13 @@ func copyLink(of card: Card, profileTab: CGRect) throws -> Result {
             if let t = activeTab(), t.minX > profileTab.minX + 60 { opened = t; break clicks }
         }
     }
-    guard let tab = opened else {
+    guard var tab = opened else {
         pressEscape()
         log("⚠️ 点了没打开新标签，跳过：\(card.title)")
         return Result(url: nil, loaded: false, matched: false)
     }
+
+    tab = settledTab(near: tab)
 
     // 等加载完：标签从「微信…」换成文章标题
     let titleArea = CGRect(x: tab.minX + 20, y: tab.minY, width: tab.width - 60, height: tab.height)
@@ -614,12 +698,14 @@ func copyLink(of card: Card, profileTab: CGRect) throws -> Result {
     var url: String?
     var attempt = 0
     while url == nil {
-        try click(Double(tab.maxX) - 14 + Double(attempt % 3 == 2 ? -4 : 0), Double(tab.midY))
+        // 每次点之前重新在标签上找「···」：按推算的位置点，标签量偏了会点到旁边的「停止 / 刷新」
+        let dots = dotsButton(tab)
+        try click(Double(dots.x), Double(dots.y))
         attempt += 1
         var item: TextBox?
         for _ in 0..<5 {
             usleep(200_000)
-            item = snapshot(CGRect(x: tab.minX, y: tab.maxY, width: 300, height: 170)).first { $0.text.contains("复制链接") }
+            item = snapshot(CGRect(x: Double(dots.x) - 240, y: Double(tab.maxY), width: 320, height: 170)).first { $0.text.contains("复制链接") }
             if item != nil { break }
         }
         if let it = item {
@@ -754,6 +840,15 @@ func sweep() throws -> Bool {
         try scrollDown(column, Double(win.height) * 0.55, Int(ask))
         pause(0.7, 1.0)
     }
+}
+
+/// 测试用：--test-dots <标签右半边截图.png> <这张图对应的点宽>，打印找到的「···」中心
+if let i = CommandLine.arguments.firstIndex(of: "--test-dots"), i + 2 < CommandLine.arguments.count {
+    let img = NSImage(contentsOfFile: CommandLine.arguments[i + 1])!
+    var r = CGRect(origin: .zero, size: img.size)
+    let cg = img.cgImage(forProposedRect: &r, context: nil, hints: nil)!
+    print("「···」中心离图左边：", dotsCenterX(cg, ptWidth: Double(CommandLine.arguments[i + 2])!).map { String(format: "%.1f 点", $0) } ?? "没找到")
+    exit(0)
 }
 
 /// 检查模式：只看不点，打印认到的标签、文字和卡片
