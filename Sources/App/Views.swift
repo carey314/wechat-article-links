@@ -2,6 +2,61 @@ import SwiftUI
 
 // MARK: - 通用小部件
 
+/// 一行放不下就换到下一行的横排：窗口窄时，步骤、运行条件不会把整页撑得比窗口还宽
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+    var lineSpacing: CGFloat = 6
+
+    private func rows(_ subviews: Subviews, maxWidth: CGFloat) -> [[(LayoutSubview, CGSize)]] {
+        var rows: [[(LayoutSubview, CGSize)]] = [[]]
+        var x: CGFloat = 0
+        for v in subviews {
+            let size = v.sizeThatFits(.unspecified)
+            if x > 0 && x + size.width > maxWidth {
+                rows.append([])
+                x = 0
+            }
+            rows[rows.count - 1].append((v, size))
+            x += size.width + spacing
+        }
+        return rows
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        let rs = rows(subviews, maxWidth: maxWidth)
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+        for r in rs {
+            var rowWidth: CGFloat = 0
+            var rowHeight: CGFloat = 0
+            for (_, size) in r {
+                rowWidth += size.width
+                rowHeight = max(rowHeight, size.height)
+            }
+            rowWidth += spacing * CGFloat(max(r.count - 1, 0))
+            width = max(width, rowWidth)
+            height += rowHeight
+        }
+        height += lineSpacing * CGFloat(max(rs.count - 1, 0))
+        return CGSize(width: min(width, maxWidth), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for r in rows(subviews, maxWidth: bounds.width) {
+            var h: CGFloat = 0
+            for (_, size) in r { h = max(h, size.height) }
+            var x = bounds.minX
+            for (v, size) in r {
+                v.place(at: CGPoint(x: x, y: y + (h - size.height) / 2), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += h + lineSpacing
+        }
+    }
+}
+
 /// 绿底白字的主按钮。系统自带的实心按钮在窗口失去焦点时底色变浅灰、文字还是白的，就看不见了，所以自己画
 struct PrimaryButtonStyle: ButtonStyle {
     var large = false
@@ -209,7 +264,7 @@ struct HomeView: View {
                         if !model.permissionsOK { PermissionCard() }
                         ReadyCard()
                         if let r = model.lastRun { ResultCard(result: r) }
-                        if !model.logs.isEmpty { LogCard(title: "这次的运行记录").frame(height: 300) }
+                        if !model.logs.isEmpty { LogCard(title: model.logsFromLastRun ? "上次的运行记录" : "这次的运行记录").frame(height: 300) }
                     }
                     .frame(maxWidth: 860)
                     .padding(20)
@@ -326,10 +381,7 @@ struct ReadyCard: View {
                         Text("采完按从新到旧排好，一行一条，方便依次学习。").foregroundStyle(.secondary)
                     }
                 }
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) { steps }
-                    VStack(alignment: .leading, spacing: 6) { steps }
-                }
+                FlowLayout(spacing: 8, lineSpacing: 8) { steps }
                 Divider()
                 HStack(spacing: 12) {
                     Picker("范围", selection: model.binding(\.mode)) {
@@ -347,18 +399,21 @@ struct ReadyCard: View {
                     .keyboardShortcut(.defaultAction)
                 }
                 Text(model.mode.hint).font(.callout).foregroundStyle(.secondary)
-                HStack(spacing: 16) {
-                    ConditionChip(ok: model.axOK, text: "辅助功能")
-                    ConditionChip(ok: model.screenOK, text: screenPermissionName)
-                    ConditionChip(ok: model.wechatRunning, text: model.wechatRunning ? "微信已打开" : "微信没打开")
-                    ConditionChip(ok: !model.darkMode, text: model.darkMode ? "深色模式" : "浅色模式")
-                    Spacer()
+                HStack(alignment: .top, spacing: 12) {
+                    FlowLayout(spacing: 16, lineSpacing: 6) {
+                        ConditionChip(ok: model.axOK, text: "辅助功能")
+                        ConditionChip(ok: model.screenOK, text: screenPermissionName)
+                        ConditionChip(ok: model.wechatRunning, text: model.wechatRunning ? "微信已打开" : "微信没打开")
+                        ConditionChip(ok: !model.darkMode, text: model.darkMode ? "深色模式" : "浅色模式")
+                    }
+                    Spacer(minLength: 0)
                     Button { model.selection = .setup } label: {
                         Label("设置与权限", systemImage: "chevron.right").labelStyle(TrailingIconLabelStyle())
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(brandGreen)
                     .font(.callout)
+                    .fixedSize()
                 }
                 if model.permissionsOK && !model.wechatRunning {
                     Notice(symbol: "exclamationmark.triangle.fill", text: "微信没有打开。先打开微信，进入要采的公众号主页。",
@@ -510,18 +565,20 @@ struct LogRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: symbol.0).foregroundStyle(symbol.1).frame(width: 16)
             Text(line.text)
-                .lineLimit(2)
+                .lineLimit(4)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .foregroundStyle(line.kind == .info ? .secondary : .primary)
-            Spacer(minLength: 8)
             if !line.detail.isEmpty {
-                Text(line.detail).monospacedDigit().foregroundStyle(.secondary)
+                Text(line.detail).monospacedDigit().foregroundStyle(.secondary).fixedSize()
             }
             Text(line.time)
                 .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(.tertiary)
+                .fixedSize()
         }
         .font(.callout)
         .padding(.horizontal, 16)

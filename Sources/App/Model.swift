@@ -126,6 +126,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var status = EngineStatus()
     @Published private(set) var lastRun: EngineStatus?
     @Published private(set) var logs: [LogLine] = []
+    @Published private(set) var logsFromLastRun = false   // logs 是打开应用时从日志文件里读出的上一次运行
     @Published private(set) var startedAt: Date?
     @Published private(set) var toast: String?
 
@@ -352,6 +353,12 @@ final class AppModel: ObservableObject {
               let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return }
         let s = EngineStatus(obj)
         if !s.isActive && !s.state.isEmpty { lastRun = s }
+        // 上一次运行的记录：日志文件里最后一次「等你松开鼠标键盘」之后的那些行
+        let text = (try? String(contentsOf: dataDir.appendingPathComponent("运行日志.txt"), encoding: .utf8)) ?? ""
+        let lines = text.split(separator: "\n").map(String.init)
+        guard lastRun != nil, let start = lines.lastIndex(where: { $0.contains("等你松开鼠标键盘") }) else { return }
+        logs = lines[start...].suffix(400).enumerated().map { parseLogLine($0.element, id: $0.offset + 1) }
+        logsFromLastRun = true
     }
 
     // MARK: 运行引擎
@@ -381,6 +388,7 @@ final class AppModel: ObservableObject {
             DispatchQueue.main.async { MainActor.assumeIsolated { AppModel.shared.engineExited() } }
         }
         logs = []
+        logsFromLastRun = false
         pending = ""
         lastRun = nil
         stopping = false

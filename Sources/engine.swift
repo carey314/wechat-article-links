@@ -567,6 +567,22 @@ func loadRecords() {
         return Entry(keys: f[0].split(separator: "|").map(String.init).filter { !isPlaceholder($0) },
                      url: f.count > 1 ? String(f[1]) : "", title: f.count > 2 ? String(f[2]) : "")
     }
+    var merged: [Entry] = []
+    var firstAt: [String: Int] = [:]
+    for var e in entries {
+        if !isPlaceholder(e.title) {
+            let k = normalize(e.title)
+            if k.count >= 4 && !e.keys.contains(k) { e.keys.append(k) }
+        }
+        if !e.url.isEmpty, let i = firstAt[e.url] {
+            for k in e.keys where !merged[i].keys.contains(k) { merged[i].keys.append(k) }
+            if isPlaceholder(merged[i].title) && !isPlaceholder(e.title) { merged[i].title = e.title }
+            continue
+        }
+        if !e.url.isEmpty { firstAt[e.url] = merged.count }
+        merged.append(e)
+    }
+    entries = merged
     let md = (try? String(contentsOfFile: mdPath, encoding: .utf8)) ?? ""
     angleStyle = md.split(separator: "\n").contains { $0.hasPrefix("<http") }
     let known = Set(entries.map(\.url))
@@ -640,7 +656,7 @@ func record(_ key: String, _ url: String, _ title: String) {
 /// 这之前菜单里也没有「复制链接」
 func isPlaceholder(_ tabText: String) -> Bool {
     let n = normalize(tabText)
-    return n.isEmpty || n == "微信" || n == "微信公众平台" || tabText.contains("加载")
+    return n.isEmpty || n == "微信" || n.contains("微信公众平") || n.hasPrefix("正在加") || tabText.contains("加载")
 }
 
 let loadTimeout = 25.0   // 网络慢时，等一篇文章加载最多等这么久
@@ -760,6 +776,8 @@ func sweep() throws -> Bool {
     var sameCount = 0
     var lastSignature = ""
     var skipped = Set<String>()     // 这一遍里加载超时、没拿到链接的，不在这一遍反复点，留给补漏
+    var openedBy: [String: [String]] = [:]   // 每张卡片点开后拿到过哪些链接
+    var opensHere = 0                         // 这一屏（上次翻页以后）点开了几次
     var scrollRatio = 1.0           // 微信页面实际移动的距离 ÷ 滚轮滚的距离，按上一次翻页的结果校准
     var anchor: (text: String, x: CGFloat, y: CGFloat, asked: Double)?
     while true {
@@ -783,6 +801,15 @@ func sweep() throws -> Bool {
             if let i = seenIndex(card.key) { cursorIndex = i; continue }   // 点过的：只记下扫到这儿了
             if skipped.contains(card.key) { continue }
             if added >= maxCount { return false }
+            // 兜底：一屏最多三四张卡片，点开 10 次还没走完，说明卡在哪张怪卡片上了。
+            // 这一屏剩下的先跳过、往下翻，保证一直往下走；跳过的留给最后从头补漏那一遍
+            if opensHere >= 10 {
+                let left = cards.filter { seenIndex($0.key) == nil && !skipped.contains($0.key) }
+                left.forEach { skipped.insert($0.key) }
+                log("⚠️ 这一屏点了 \(opensHere) 次还没走完，剩下 \(left.count) 张先跳过、接着往下翻，最后补漏时再试")
+                break
+            }
+            opensHere += 1
             sameCount = 0
             let t0 = Date()
             let r = try copyLink(of: card, profileTab: profileTab)
@@ -791,13 +818,20 @@ func sweep() throws -> Bool {
                 continue
             }
             let isNew = !urls.contains(u)
-            if r.matched || !r.loaded {
+            openedBy[card.key, default: []].append(u)
+            // 同一张卡片点开两次拿到的都是这个链接，就是它了（标签标题认错字、或者和卡片写法不一样时，靠这个收住，不会一直重开）
+            let sameTwice = openedBy[card.key]!.filter { $0 == u }.count >= 2
+            if r.matched || !r.loaded || sameTwice {
                 // 打开的就是这张（标签一直没换成标题时，相信点的位置）
                 record(card.key, u, card.title)
             } else {
                 // 点开的是别的卡片（列表位置变了）：按实际打开的那篇记，这一屏重新认
                 record(r.opened, u, r.openedTitle)
                 redo = true
+                if openedBy[card.key]!.count >= 3 {
+                    skipped.insert(card.key)
+                    log("⚠️ 这张卡片点了 3 次都对不上，先跳过，补漏时再试：\(card.title)")
+                }
             }
             if isNew {
                 added += 1
@@ -838,6 +872,7 @@ func sweep() throws -> Bool {
         let ask = plan.points / scrollRatio
         if let a = plan.anchor { anchor = (a.text, a.rect.minX, a.rect.minY, ask) }
         try scrollDown(column, Double(win.height) * 0.55, Int(ask))
+        opensHere = 0
         pause(0.7, 1.0)
     }
 }
@@ -848,6 +883,20 @@ if let i = CommandLine.arguments.firstIndex(of: "--test-dots"), i + 2 < CommandL
     var r = CGRect(origin: .zero, size: img.size)
     let cg = img.cgImage(forProposedRect: &r, context: nil, hints: nil)!
     print("「···」中心离图左边：", dotsCenterX(cg, ptWidth: Double(CommandLine.arguments[i + 2])!).map { String(format: "%.1f 点", $0) } ?? "没找到")
+    exit(0)
+}
+
+/// 自检（不碰微信）：--self-test [--dir 目录 --file 名字.md]，检查「加载中」的认法，以及读记录时合并重复
+if CommandLine.arguments.contains("--self-test") {
+    for t in ["正在加载", "正在加毂", "正在加穀", "）彳微信公众平台", "1微信公众平台", "微信…", "聊聊DeepSeek V4正式版，真正的智能平权。", "正在发生的AI革命"] {
+        print(isPlaceholder(t) ? "加载中" : "是标题", "←", t)
+    }
+    if mdName != nil {
+        let raw = ((try? String(contentsOfFile: "\(dataDir)/\(mdName!).已点过.txt", encoding: .utf8)) ?? "").split(separator: "\n").count
+        loadRecords()
+        print("记录文件 \(raw) 行 → 合并后 \(entries.count) 篇，不重复的链接 \(Set(entries.map(\.url)).count) 个")
+        for (i, e) in entries.enumerated() where e.keys.isEmpty || isPlaceholder(e.title) { print("第 \(i + 1) 篇没有叫法或标题：", e.url, e.title) }
+    }
     exit(0)
 }
 
