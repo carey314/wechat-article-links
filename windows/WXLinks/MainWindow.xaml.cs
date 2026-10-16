@@ -122,7 +122,8 @@ public partial class MainWindow : Window
 
     // MARK: 采集页
 
-    void OnModeChanged(object sender, RoutedEventArgs e) { mode = ModeTrial.IsChecked == true ? "trial" : ModeRecheck.IsChecked == true ? "recheck" : "all"; UpdateMode(); }
+    // 「全部采完」在界面文件里默认选中，窗口还没建完时就会触发一次，那时另外两个按钮还不存在
+    void OnModeChanged(object sender, RoutedEventArgs e) { mode = sender == ModeTrial ? "trial" : sender == ModeRecheck ? "recheck" : "all"; UpdateMode(); }
 
     void UpdateMode()
     {
