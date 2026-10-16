@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
 using System.Security.Cryptography;
+using System.Text;
 using System.Windows;
 
 namespace WXLinks;
@@ -22,7 +25,7 @@ static class Installer
     {
         var self = Environment.ProcessPath;
         if (self == null || args.Contains("--no-install")) return false;
-        if (IsInstalledCopy) { try { if (!File.Exists(StartMenuShortcut)) MakeShortcut(StartMenuShortcut); } catch { } return false; }
+        if (IsInstalledCopy) { try { if (!File.Exists(StartMenuShortcut)) MakeShortcut(StartMenuShortcut); } catch (Exception e) { Note(e); } return false; }
         if (self.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)) return false;
         try
         {
@@ -47,10 +50,24 @@ static class Installer
             Process.Start(new ProcessStartInfo(Exe) { UseShellExecute = false, WorkingDirectory = Dir });
             return true;
         }
-        catch
+        catch (Exception e)
         {
+            Note(e);
             return false;   // 装不上（比如没有写权限）就直接用这一份
         }
+    }
+
+    public static string NoteFile => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WXLinks", "安装记录.txt");
+
+    /// 装的时候出了错，记一笔（遇到问题时和崩溃记录一起发给作者）
+    static void Note(Exception e)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(NoteFile)!);
+            File.AppendAllText(NoteFile, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {Environment.ProcessPath} → {Exe}\n{e}\n\n");
+        }
+        catch { }
     }
 
     static bool SameFile(string a, string b)
@@ -61,18 +78,46 @@ static class Installer
         return SHA256.HashData(fa).AsSpan().SequenceEqual(SHA256.HashData(fb));
     }
 
-    /// 建快捷方式，指向装好的那份（没装上就指向正在运行的这一份）
+    /// 建快捷方式，指向装好的那份（没装上就指向正在运行的这一份）。直接用系统的 IShellLink，不经过脚本组件
     public static void MakeShortcut(string lnk)
     {
         var target = File.Exists(Exe) ? Exe : Environment.ProcessPath!;
         Directory.CreateDirectory(Path.GetDirectoryName(lnk)!);
-        var shellType = Type.GetTypeFromProgID("WScript.Shell")!;
-        dynamic shell = Activator.CreateInstance(shellType)!;
-        dynamic sc = shell.CreateShortcut(lnk);
-        sc.TargetPath = target;
-        sc.WorkingDirectory = Path.GetDirectoryName(target);
-        sc.IconLocation = target + ",0";
-        sc.Description = "把公众号的文章链接按顺序收进一个文件";
-        sc.Save();
+        var link = (IShellLinkW)new ShellLink();
+        try
+        {
+            link.SetPath(target);
+            link.SetWorkingDirectory(Path.GetDirectoryName(target)!);
+            link.SetIconLocation(target, 0);
+            link.SetDescription("把公众号的文章链接按顺序收进一个文件");
+            ((IPersistFile)link).Save(lnk, true);
+        }
+        finally { Marshal.FinalReleaseComObject(link); }
+    }
+
+    [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
+    class ShellLink { }
+
+    [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("000214F9-0000-0000-C000-000000000046")]
+    interface IShellLinkW
+    {
+        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file, int max, IntPtr findData, int flags);
+        void GetIDList(out IntPtr pidl);
+        void SetIDList(IntPtr pidl);
+        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder name, int max);
+        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string name);
+        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder dir, int max);
+        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string dir);
+        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder args, int max);
+        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string args);
+        void GetHotkey(out short hotkey);
+        void SetHotkey(short hotkey);
+        void GetShowCmd(out int cmd);
+        void SetShowCmd(int cmd);
+        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder path, int max, out int index);
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string path, int index);
+        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string path, int reserved);
+        void Resolve(IntPtr hwnd, int flags);
+        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string file);
     }
 }

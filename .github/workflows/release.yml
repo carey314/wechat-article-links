@@ -118,6 +118,7 @@ jobs:
         shell: pwsh
         run: |
           Get-Content "$env:APPDATA\WXLinks\崩溃记录.txt" -Encoding utf8 -ErrorAction SilentlyContinue
+          Get-Content "$env:APPDATA\WXLinks\安装记录.txt" -Encoding utf8 -ErrorAction SilentlyContinue
           Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = '.NET Runtime', 'Application Error' } -MaxEvents 4 -ErrorAction SilentlyContinue |
             Format-List TimeCreated, ProviderName, Message
 
