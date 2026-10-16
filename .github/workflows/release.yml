@@ -1,0 +1,45 @@
+# 编译 macOS 版。推到 main 时只编译检查、把安装包存成构件；推 v 开头的 tag（比如 v1.0.0）时再发布到 Releases
+name: 编译与发布
+
+on:
+  push:
+    branches: [main]
+    paths: ["Sources/**", "Resources/**", "tools/**", ".github/workflows/release.yml"]
+    tags: ["v*"]
+  pull_request:
+    paths: ["Sources/**", "Resources/**", "tools/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 编译通用版并打成 dmg
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then export VERSION="${GITHUB_REF_NAME#v}"; fi
+          tools/build.sh release
+          codesign --verify --deep --strict "output/公众号链接采集.app"
+          lipo -archs "output/公众号链接采集.app/Contents/MacOS/wxlinks"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WXLinks-mac
+          path: output/WXLinks-mac.dmg
+
+      - name: 发布到 Releases
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          **下载**：Mac 用户下载下面的 `WXLinks-mac.dmg`（Apple 芯片和 Intel 都能用，需要 macOS 14 或更新）。
+          也可以打开下载页，自动推荐适合你电脑的版本：https://carey314.github.io/wechat-article-links/
+
+          **第一次打开**：这是没有付费签名的开源小工具，系统会拦一下。打开「系统设置 → 隐私与安全性」，在「安全性」里点「仍要打开」。详见安装包里的「第一次打开.txt」。
+          EOF
+          gh release create "$GITHUB_REF_NAME" output/WXLinks-mac.dmg --title "公众号链接采集 $GITHUB_REF_NAME" --notes-file notes.md
