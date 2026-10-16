@@ -139,6 +139,8 @@ func bringWeChatFront() {
             AXUIElementSetAttributeValue(w, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
             AXUIElementPerformAction(w, kAXRaiseAction as CFString)
             AXUIElementSetAttributeValue(w, kAXMainAttribute as CFString, kCFBooleanTrue)
+            AXUIElementSetAttributeValue(w, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute as CFString, w)
         }
     }
     // 等窗口动画放完、尺寸稳定
@@ -302,16 +304,26 @@ func pressKey(_ code: CGKeyCode) {
 
 func pressEscape() { pressKey(53) }
 
+/// 主页的分栏：「全部」后面跟着「贴图 / 文章 / 视频号」里的几个（各个号不一样，有的只有「全部 文章」），
+/// 认字时可能连成一段「全部 文章」，也可能分开；或者在最顶上能看到「xx篇原创内容」
+func isProfilePage(_ boxes: [TextBox]) -> Bool {
+    let top = boxes.filter { $0.rect.minY < 420 }
+    let others = ["文章", "视频号", "贴图"]
+    let tabsRow = top.contains { a in
+        a.text.contains("全部") && (others.contains { a.text.contains($0) }
+            || top.contains { b in others.contains { b.text.contains($0) } && abs(b.rect.midY - a.rect.midY) < 10 && b.rect.minX > a.rect.minX })
+    }
+    return tabsRow || top.contains { $0.text.contains("篇原创") }
+}
+
 /// 确认停在公众号主页，返回主页标签位置和整屏认字结果；开着文章（比如误点开的）就先关掉
 func ensureProfile() throws -> (tab: CGRect, boxes: [TextBox]) {
     for _ in 0..<4 {
         try refreshWindow()
         guard let tab = activeTab() else { throw StopError(reason: "认不出微信的标签栏：请确认微信停在公众号主页；如果电脑是深色模式，请先切到浅色模式") }
         let boxes = snapshot()
+        if isProfilePage(boxes) { return (tab, boxes) }
         let top = boxes.filter { $0.rect.minY < 420 }
-        // 主页的分栏「全部 贴图 文章 视频号」在同一行；或者在最顶上能看到「xx篇原创内容」
-        let tabsRow = top.contains { a in a.text.contains("全部") && top.contains { $0.text.contains("视频号") && abs($0.rect.minY - a.rect.minY) < 10 } }
-        if tabsRow || top.contains(where: { $0.text.contains("篇原创") }) { return (tab, boxes) }
         // 文章页标题下面有「2026年10月15日」这样的日期
         let isArticle = top.contains { $0.rect.minY < 200 && $0.text.range(of: "\\d{4}年\\d{1,2}月\\d{1,2}日", options: .regularExpression) != nil }
         if isArticle && tab.minX > 150 {
@@ -375,7 +387,7 @@ func rowText(_ boxes: [TextBox], _ first: TextBox, left: CGFloat) -> String {
 /// 返回认出的卡片，和完整露出来却认不出标题的卡片（可能会漏）
 /// 可点区域：顶上吸住的「全部 贴图 文章 视频号」下面 20 点，到窗口底 8 点
 func clickableRange(_ boxes: [TextBox]) -> (top: Double, bottom: Double) {
-    let sticky = boxes.filter { ($0.text.contains("全部") || $0.text.contains("视频号")) && $0.rect.minY < 160 }
+    let sticky = boxes.filter { ["全部", "文章", "视频号", "贴图"].contains(where: $0.text.contains) && $0.rect.minY < 160 }
     return ((sticky.map { Double($0.rect.maxY) }.max() ?? 25) + 20, Double(win.height) - 8)
 }
 
@@ -560,12 +572,15 @@ struct Result {
 }
 
 func copyLink(of card: Card, profileTab: CGRect) throws -> Result {
-    try click(Double(card.target.x), Double(card.target.y))
-    // 等文章在主页标签右边打开成新的当前标签（标签一多会自动变窄，只能比左边起点）
+    // 点卡片，等文章在主页标签右边打开成新的当前标签（标签一多会自动变窄，只能比左边起点）。
+    // 第一下点击有时只是把微信窗口激活了，没反应就再点一次
     var opened: CGRect?
-    for _ in 0..<25 {
-        usleep(200_000)
-        if let t = activeTab(), t.minX > profileTab.minX + 60 { opened = t; break }
+    clicks: for attempt in 0..<2 {
+        try click(Double(card.target.x), Double(card.target.y))
+        for _ in 0..<(attempt == 0 ? 13 : 20) {
+            usleep(200_000)
+            if let t = activeTab(), t.minX > profileTab.minX + 60 { opened = t; break clicks }
+        }
     }
     guard let tab = opened else {
         pressEscape()
@@ -751,6 +766,7 @@ if probeMode {
     let boxes = snapshot()
     for b in boxes { print(String(format: "(%4.0f,%4.0f %3.0fx%2.0f) ", b.rect.minX, b.rect.minY, b.rect.width, b.rect.height) + b.text) }
     print("---- 认出的卡片 ----")
+    print("是公众号主页:", isProfilePage(boxes) ? "是" : "否")
     let (cards, notRead) = visibleCards(boxes)
     for c in cards { print(Int(c.target.x), Int(c.target.y), c.title) }
     for u in notRead { print("认不出标题：", u) }
