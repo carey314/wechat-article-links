@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <Version>1.1.0</Version>
+    <Company>carey314</Company>
+    <Product>公众号链接采集</Product>
+    <Copyright>MIT License · github.com/carey314/wechat-article-links</Copyright>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+</Project>

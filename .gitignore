@@ -5,3 +5,7 @@ output/
 99-归档/
 design/
 .DS_Store
+
+# Windows 版编译产物
+windows/**/bin/
+windows/**/obj/

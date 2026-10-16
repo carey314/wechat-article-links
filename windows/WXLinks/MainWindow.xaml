@@ -1,0 +1,374 @@
+<Window x:Class="WXLinks.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="公众号链接采集" Width="1000" Height="700" MinWidth="820" MinHeight="560"
+        Background="{StaticResource Bg}" FontFamily="{StaticResource UiFont}"
+        WindowStartupLocation="CenterScreen" UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display">
+    <Window.Resources>
+        <FontFamily x:Key="Icons">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+        <Style x:Key="Glyph" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource Icons}"/>
+            <Setter Property="TextWrapping" Value="NoWrap"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="H2" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="FontSize" Value="17"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="Sub" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+        </Style>
+        <Style x:Key="Section" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="4,0,0,8"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="232"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- 侧栏 -->
+        <Border Grid.Column="0" Background="{StaticResource Side}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="18,18,18,14">
+                    <Border Width="30" Height="30" CornerRadius="8" Background="{StaticResource GreenGrad}">
+                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE71B;" Foreground="White" FontSize="15" HorizontalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Text="公众号链接采集" FontSize="14" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+                <Button DockPanel.Dock="Bottom" x:Name="DataFolderButton" Style="{StaticResource LinkButton}" Margin="14,10,14,16"
+                        Foreground="{StaticResource Muted}" Click="OnOpenDataFolder">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE8B7;" Foreground="{StaticResource Muted}" FontSize="14"/>
+                        <TextBlock Text="数据文件夹" Foreground="{StaticResource Muted}" Margin="8,0,0,0"/>
+                    </StackPanel>
+                </Button>
+                <ListBox x:Name="Nav" Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource SideItem}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" SelectionChanged="OnNavChanged">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="24"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Style="{StaticResource Glyph}" Text="{Binding Glyph}" FontSize="14" Foreground="{Binding Fore}"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Title}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" Foreground="{Binding Fore}"/>
+                                <TextBlock Grid.Column="2" Text="{Binding Badge}" FontSize="12" Foreground="{Binding BadgeFore}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- 采集页 -->
+        <ScrollViewer Grid.Column="1" x:Name="HomePage" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="26,22,26,26" MaxWidth="900">
+                <!-- 就绪 -->
+                <Border x:Name="ReadyCard" Style="{StaticResource CardBorder}" Padding="24">
+                    <StackPanel>
+                        <DockPanel>
+                            <Border Width="50" Height="50" CornerRadius="14" Background="{StaticResource GreenGrad}" DockPanel.Dock="Left">
+                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE71B;" Foreground="White" FontSize="24" HorizontalAlignment="Center"/>
+                            </Border>
+                            <StackPanel Margin="16,2,0,0" VerticalAlignment="Center">
+                                <TextBlock Style="{StaticResource H2}" Text="把公众号的文章链接，按顺序收进一个文件"/>
+                                <TextBlock Style="{StaticResource Sub}" Text="采完按从新到旧排好，一行一条，方便依次学习。" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <WrapPanel Margin="0,18,0,0">
+                            <Border CornerRadius="14" Background="#FFF0F3F1" Padding="5,4,13,4" Margin="0,0,8,6">
+                                <StackPanel Orientation="Horizontal">
+                                    <Border Width="20" Height="20" CornerRadius="10" Background="{StaticResource GreenSoft}"><TextBlock Text="1" FontSize="11" FontWeight="Bold" Foreground="{StaticResource GreenDeep}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                                    <TextBlock Text="微信里打开公众号主页" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                            <Border CornerRadius="14" Background="#FFF0F3F1" Padding="5,4,13,4" Margin="0,0,8,6">
+                                <StackPanel Orientation="Horizontal">
+                                    <Border Width="20" Height="20" CornerRadius="10" Background="{StaticResource GreenSoft}"><TextBlock Text="2" FontSize="11" FontWeight="Bold" Foreground="{StaticResource GreenDeep}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                                    <TextBlock Text="点「开始采集」" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                            <Border CornerRadius="14" Background="#FFF0F3F1" Padding="5,4,13,4" Margin="0,0,8,6">
+                                <StackPanel Orientation="Horizontal">
+                                    <Border Width="20" Height="20" CornerRadius="10" Background="{StaticResource GreenSoft}"><TextBlock Text="3" FontSize="11" FontWeight="Bold" Foreground="{StaticResource GreenDeep}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                                    <TextBlock Text="松开鼠标，等它采完" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                        </WrapPanel>
+                        <Border Height="1" Background="{StaticResource Line}" Margin="0,12,0,16"/>
+                        <DockPanel>
+                            <Button x:Name="StartButton" DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Click="OnStart">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource Glyph}" Text="&#xE768;" Foreground="White" FontSize="12"/>
+                                    <TextBlock Text="开始采集" Foreground="White" FontWeight="SemiBold" FontSize="14" Margin="8,0,0,0"/>
+                                </StackPanel>
+                            </Button>
+                            <Border CornerRadius="9" Background="#FFEDF0EE" Padding="2" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton x:Name="ModeAll" Style="{StaticResource SegRadio}" GroupName="mode" Content="全部采完" IsChecked="True" Checked="OnModeChanged"/>
+                                    <RadioButton x:Name="ModeTrial" Style="{StaticResource SegRadio}" GroupName="mode" Content="先试 10 篇" Checked="OnModeChanged"/>
+                                    <RadioButton x:Name="ModeRecheck" Style="{StaticResource SegRadio}" GroupName="mode" Content="只补漏" Checked="OnModeChanged"/>
+                                </StackPanel>
+                            </Border>
+                        </DockPanel>
+                        <TextBlock x:Name="ModeHint" Style="{StaticResource Sub}" Margin="0,12,0,0"/>
+                        <DockPanel Margin="0,12,0,0">
+                            <Button DockPanel.Dock="Right" Style="{StaticResource LinkButton}" Click="OnGoSetup" VerticalAlignment="Top">
+                                <TextBlock Text="设置与检查 ›" Foreground="{StaticResource GreenDeep}"/>
+                            </Button>
+                            <WrapPanel x:Name="Conditions"/>
+                        </DockPanel>
+                        <Border x:Name="Notice" Visibility="Collapsed" Background="{StaticResource OrangeSoft}" CornerRadius="8" Padding="12,9" Margin="0,12,0,0">
+                            <DockPanel>
+                                <Button x:Name="NoticeButton" DockPanel.Dock="Right" Style="{StaticResource SoftButton}" Click="OnNoticeAction" Margin="10,0,0,0"/>
+                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE7BA;" Foreground="{StaticResource Orange}" Margin="0,0,10,0"/>
+                                <TextBlock x:Name="NoticeText" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- 采集中 -->
+                <Border x:Name="RunningCard" Style="{StaticResource CardBorder}" Padding="24" Visibility="Collapsed">
+                    <StackPanel>
+                        <DockPanel>
+                            <TextBlock x:Name="Elapsed" DockPanel.Dock="Right" Style="{StaticResource Sub}" FontFamily="{StaticResource MonoFont}"/>
+                            <Border x:Name="StatePill" CornerRadius="12" Padding="10,3" HorizontalAlignment="Left" Background="{StaticResource GreenSoft}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse x:Name="StateDot" Width="7" Height="7" Fill="{StaticResource Green}" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="StateText" Text="正在启动" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource GreenDeep}" Margin="7,0,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </DockPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <TextBlock x:Name="BigNumber" Text="0" FontSize="56" FontWeight="SemiBold" FontFamily="Segoe UI Variable Display, Segoe UI"/>
+                            <TextBlock Text="条链接" FontSize="17" Foreground="{StaticResource Muted}" VerticalAlignment="Bottom" Margin="8,0,0,12"/>
+                        </StackPanel>
+                        <TextBlock x:Name="RunSubtitle" Style="{StaticResource Sub}" Text="正在找公众号主页…"/>
+                        <WrapPanel Margin="0,14,0,0">
+                            <StackPanel Margin="0,0,32,0"><TextBlock Text="本次新增" FontSize="11" Foreground="{StaticResource Muted}"/><TextBlock x:Name="StatAdded" Text="0" FontSize="15" FontWeight="SemiBold"/></StackPanel>
+                            <StackPanel Margin="0,0,32,0"><TextBlock Text="平均每篇" FontSize="11" Foreground="{StaticResource Muted}"/><TextBlock x:Name="StatAvg" Text="—" FontSize="15" FontWeight="SemiBold"/></StackPanel>
+                            <StackPanel Margin="0,0,32,0"><TextBlock Text="补回" FontSize="11" Foreground="{StaticResource Muted}"/><TextBlock x:Name="StatRecovered" Text="0" FontSize="15" FontWeight="SemiBold"/></StackPanel>
+                        </WrapPanel>
+                        <TextBlock x:Name="CurrentLine" Style="{StaticResource Sub}" Margin="0,12,0,0" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                        <Border Height="1" Background="{StaticResource Line}" Margin="0,14,0,14"/>
+                        <DockPanel>
+                            <Button x:Name="StopButton" DockPanel.Dock="Right" Style="{StaticResource StopButton}" Click="OnStop" Margin="12,0,0,0">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource Glyph}" Text="&#xE71A;" Foreground="{StaticResource Red}" FontSize="12"/>
+                                    <TextBlock Text="停止" Foreground="{StaticResource Red}" FontWeight="SemiBold" Margin="8,0,0,0"/>
+                                </StackPanel>
+                            </Button>
+                            <TextBlock x:Name="RunHint" Style="{StaticResource Sub}" VerticalAlignment="Center"/>
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- 结果 -->
+                <Border x:Name="ResultCard" Style="{StaticResource CardBorder}" Padding="18" Margin="0,14,0,0" Visibility="Collapsed">
+                    <DockPanel>
+                        <TextBlock x:Name="ResultIcon" DockPanel.Dock="Left" Style="{StaticResource Glyph}" FontSize="26" Margin="0,0,14,0" VerticalAlignment="Top"/>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="ResultList" Style="{StaticResource SoftButton}" Content="查看列表" Click="OnResultList" Margin="10,0,0,0"/>
+                            <Button x:Name="ResultOpen" Style="{StaticResource SoftButton}" Content="打开文件" Click="OnResultOpen" Margin="8,0,0,0"/>
+                            <Button Style="{StaticResource LinkButton}" Click="OnDismissResult" Margin="8,0,0,0" ToolTip="关掉这条结果">
+                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE711;" Foreground="{StaticResource Muted}" FontSize="12"/>
+                            </Button>
+                        </StackPanel>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="ResultTitle" FontSize="14" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="ResultDetail" Style="{StaticResource Sub}" Margin="0,3,0,0"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- 运行记录 -->
+                <Border x:Name="LogCard" Style="{StaticResource CardBorder}" Padding="0" Margin="0,14,0,0" Visibility="Collapsed">
+                    <DockPanel>
+                        <DockPanel DockPanel.Dock="Top" Margin="16,11">
+                            <TextBlock x:Name="LogCount" DockPanel.Dock="Right" FontSize="12" Foreground="{StaticResource Muted}"/>
+                            <TextBlock x:Name="LogTitle" Text="运行记录" FontWeight="SemiBold" FontSize="14"/>
+                        </DockPanel>
+                        <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource Line}"/>
+                        <ScrollViewer x:Name="LogScroll" Height="320" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl x:Name="LogList" Margin="0,4">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="16,5">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="24"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource Glyph}" Text="{Binding Glyph}" Foreground="{Binding GlyphBrush}" FontSize="14" VerticalAlignment="Top" Margin="0,2,0,0"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Text}" Foreground="{Binding TextBrush}" TextWrapping="Wrap"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Detail}" Foreground="{StaticResource Muted}" Margin="10,0,0,0" TextWrapping="NoWrap"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding Time}" Foreground="{StaticResource Faint}" FontFamily="{StaticResource MonoFont}" FontSize="11" Margin="10,2,0,0" TextWrapping="NoWrap"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- 设置与检查 -->
+        <ScrollViewer Grid.Column="1" x:Name="SetupPage" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+            <StackPanel Margin="26,22,26,26" MaxWidth="820">
+                <TextBlock Text="设置与检查" FontSize="20" FontWeight="SemiBold" Margin="4,0,0,18"/>
+
+                <TextBlock Style="{StaticResource Section}" Text="运行条件"/>
+                <Border Style="{StaticResource CardBorder}" Padding="18">
+                    <StackPanel>
+                        <DockPanel>
+                            <Button x:Name="OcrButton" DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Height="30" FontSize="13" Padding="14,0" Content="去添加中文" Click="OnInstallOcr"/>
+                            <TextBlock x:Name="OcrIcon" DockPanel.Dock="Left" Style="{StaticResource Glyph}" FontSize="18" Margin="0,0,12,0"/>
+                            <StackPanel>
+                                <TextBlock x:Name="OcrTitle" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="OcrDetail" Style="{StaticResource Sub}"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <Border Height="1" Background="{StaticResource Line}" Margin="0,14"/>
+                        <DockPanel>
+                            <Button x:Name="WeChatButton" DockPanel.Dock="Right" Style="{StaticResource SoftButton}" Content="打开微信" Click="OnOpenWeChat"/>
+                            <TextBlock x:Name="WeChatIcon" DockPanel.Dock="Left" Style="{StaticResource Glyph}" FontSize="18" Margin="0,0,12,0"/>
+                            <StackPanel>
+                                <TextBlock Text="微信" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="WeChatDetail" Style="{StaticResource Sub}"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <Border Height="1" Background="{StaticResource Line}" Margin="0,14"/>
+                        <TextBlock Style="{StaticResource Sub}" Text="Windows 不用额外开权限。采集时微信要在最前面、别被其他窗口挡住；电脑用浅色模式，屏幕缩放 100%～200% 都可以。"/>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Style="{StaticResource Section}" Text="检查一下（只看不点）" Margin="4,22,0,8"/>
+                <Border Style="{StaticResource CardBorder}" Padding="18">
+                    <StackPanel>
+                        <DockPanel>
+                            <Button x:Name="ProbeButton" DockPanel.Dock="Right" Style="{StaticResource SoftButton}" Content="检查" Click="OnProbe"/>
+                            <TextBlock Style="{StaticResource Sub}" Text="先在微信里打开公众号主页，再点「检查」。它只看不点：找到公众号窗口、认出这一屏的文章，告诉你能不能开始，并存一张诊断截图。"/>
+                        </DockPanel>
+                        <TextBox x:Name="ProbeOutput" Visibility="Collapsed" Margin="0,12,0,0" IsReadOnly="True" TextWrapping="Wrap" FontFamily="{StaticResource MonoFont}" FontSize="12"
+                                 Background="{StaticResource Row}" BorderBrush="{StaticResource Line}" Padding="10" MaxHeight="260" VerticalScrollBarVisibility="Auto"/>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Style="{StaticResource Section}" Text="数据文件夹" Margin="4,22,0,8"/>
+                <Border Style="{StaticResource CardBorder}" Padding="18">
+                    <StackPanel>
+                        <TextBox x:Name="DataDirText" IsReadOnly="True" BorderThickness="0" Background="Transparent" FontFamily="{StaticResource MonoFont}" FontSize="12.5" TextWrapping="Wrap"/>
+                        <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,0" Text="每个公众号一个 md 文件。旁边的「.已点过.txt」记着采到哪儿了，删掉就会从头采。遇到问题时，把里面的「诊断」文件夹和「运行日志.txt」发给作者。"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <Button x:Name="ChangeDirButton" Style="{StaticResource SoftButton}" Content="更改…" Click="OnChangeDir"/>
+                            <Button Style="{StaticResource SoftButton}" Content="在资源管理器中显示" Click="OnOpenDataFolder" Margin="8,0,0,0"/>
+                            <Button Style="{StaticResource SoftButton}" Content="打开诊断文件夹" Click="OnOpenDiag" Margin="8,0,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Style="{StaticResource Section}" Text="安装" Margin="4,22,0,8"/>
+                <Border Style="{StaticResource CardBorder}" Padding="18">
+                    <StackPanel>
+                        <DockPanel>
+                            <Button x:Name="ShortcutButton" DockPanel.Dock="Right" Style="{StaticResource SoftButton}" Content="添加到开始菜单和桌面" Click="OnShortcuts"/>
+                            <TextBlock x:Name="ShortcutIcon" DockPanel.Dock="Left" Style="{StaticResource Glyph}" FontSize="18" Margin="0,0,12,0"/>
+                            <StackPanel>
+                                <TextBlock x:Name="ShortcutTitle" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="ShortcutDetail" Style="{StaticResource Sub}"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <Border Height="1" Background="{StaticResource Line}" Margin="0,14"/>
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource SoftButton}" Content="项目主页" Click="OnHomepage"/>
+                            <TextBlock x:Name="VersionText" Style="{StaticResource Sub}" VerticalAlignment="Center"/>
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- 公众号的链接列表 -->
+        <DockPanel Grid.Column="1" x:Name="AccountPage" Visibility="Collapsed" Margin="22,20,22,20">
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,14">
+                <Border Width="42" Height="42" CornerRadius="11" Background="{StaticResource GreenGrad}" DockPanel.Dock="Left">
+                    <TextBlock Style="{StaticResource Glyph}" Text="&#xE8F1;" Foreground="White" FontSize="19" HorizontalAlignment="Center"/>
+                </Border>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border CornerRadius="15" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="10,0" Height="30" Width="200">
+                        <DockPanel>
+                            <TextBlock Style="{StaticResource Glyph}" Text="&#xE721;" Foreground="{StaticResource Faint}" FontSize="12" DockPanel.Dock="Left"/>
+                            <Grid Margin="6,0,0,0">
+                                <TextBlock x:Name="SearchHint" Text="搜索标题" Foreground="{StaticResource Faint}" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                                <TextBox x:Name="Search" BorderThickness="0" Background="Transparent" VerticalAlignment="Center" FontSize="13" TextChanged="OnSearch"/>
+                            </Grid>
+                        </DockPanel>
+                    </Border>
+                    <Button Style="{StaticResource SoftButton}" Margin="8,0,0,0" Click="OnCopyAll" ToolTip="复制全部链接，一行一条">
+                        <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Glyph}" Text="&#xE8C8;" FontSize="12" Foreground="{StaticResource GreenDeep}"/><TextBlock Text="复制全部" Foreground="{StaticResource GreenDeep}" Margin="6,0,0,0"/></StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource SoftButton}" Margin="8,0,0,0" Click="OnOpenFile" ToolTip="用默认的编辑器打开这个 md 文件">
+                        <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Glyph}" Text="&#xE8A5;" FontSize="12" Foreground="{StaticResource GreenDeep}"/><TextBlock Text="打开文件" Foreground="{StaticResource GreenDeep}" Margin="6,0,0,0"/></StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource SoftButton}" Margin="8,0,0,0" Click="OnRevealFile" ToolTip="在资源管理器中显示">
+                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE8B7;" FontSize="13" Foreground="{StaticResource GreenDeep}"/>
+                    </Button>
+                </StackPanel>
+                <StackPanel Margin="14,0,12,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="AccountName" FontSize="17" FontWeight="SemiBold" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="AccountSummary" Style="{StaticResource Sub}" TextWrapping="NoWrap"/>
+                </StackPanel>
+            </DockPanel>
+            <Border Background="White" CornerRadius="12" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="6">
+                <Grid>
+                    <ListView x:Name="Articles" BorderThickness="0" Background="Transparent" AlternationCount="2" SelectionMode="Extended"
+                              ItemContainerStyle="{StaticResource ArticleItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                              MouseDoubleClick="OnArticleDoubleClick" KeyDown="OnArticlesKey">
+                        <ListView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="复制链接" Click="OnCopySelected"/>
+                                <MenuItem Header="复制为 Markdown" Click="OnCopyMarkdown"/>
+                                <Separator/>
+                                <MenuItem Header="在浏览器打开" Click="OnOpenSelected"/>
+                            </ContextMenu>
+                        </ListView.ContextMenu>
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="40"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Index}" Foreground="{StaticResource Faint}" HorizontalAlignment="Right" Margin="0,1,12,0" TextWrapping="NoWrap"/>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="{Binding Title}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding ShortUrl}" FontFamily="{StaticResource MonoFont}" FontSize="11" Foreground="{StaticResource Muted}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <TextBlock x:Name="EmptyList" Text="还没有链接" Foreground="{StaticResource Faint}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                </Grid>
+            </Border>
+        </DockPanel>
+
+        <!-- 底部提示 -->
+        <Border Grid.Column="1" x:Name="Toast" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,24"
+                Background="#E61D2420" CornerRadius="16" Padding="16,8">
+            <TextBlock x:Name="ToastText" Foreground="White"/>
+        </Border>
+    </Grid>
+</Window>

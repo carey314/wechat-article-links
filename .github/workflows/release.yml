@@ -1,13 +1,13 @@
-# 编译 macOS 版。推到 main 时只编译检查、把安装包存成构件；推 v 开头的 tag（比如 v1.0.0）时再发布到 Releases
+# 编译 macOS 版和 Windows 版。推到 main 时只编译检查、把安装包存成构件；推 v 开头的 tag（比如 v1.1.0）时两边都编好了再一起发布到 Releases
 name: 编译与发布
 
 on:
   push:
     branches: [main]
-    paths: ["Sources/**", "Resources/**", "tools/**", ".github/workflows/release.yml"]
+    paths: ["Sources/**", "Resources/**", "tools/**", "windows/**", ".github/workflows/release.yml"]
     tags: ["v*"]
   pull_request:
-    paths: ["Sources/**", "Resources/**", "tools/**"]
+    paths: ["Sources/**", "Resources/**", "tools/**", "windows/**"]
   workflow_dispatch:
 
 permissions:
@@ -31,15 +31,119 @@ jobs:
           name: WXLinks-mac
           path: output/WXLinks-mac.dmg
 
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: 规则对照测试（和 Mac 版逐行比对）
+        run: dotnet run --project windows/Tests -c Release
+
+      - name: 编译单文件 exe（自带运行库）
+        shell: pwsh
+        run: |
+          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '1.1.0' }
+          dotnet publish windows/WXLinks/WXLinks.csproj -c Release -p:Version=$v -o publish
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item publish/WXLinks.exe dist/WXLinks-windows.exe
+          Get-Item dist/WXLinks-windows.exe | Format-List Name, Length
+
+      # 下面几步是在云端电脑上把程序真的跑起来看一眼（没有微信，只能查到「能打开、不报错」这一层）
+      - name: 打开界面并截图
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          function Shot($name) {
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save("shots/$name.png")
+          }
+          New-Item -ItemType Directory -Force shots | Out-Null
+          foreach ($page in 'home', 'setup') {
+            $p = Start-Process dist/WXLinks-windows.exe -ArgumentList '--no-install', '--dir', "$env:RUNNER_TEMP\wxdata", '--page', $page -PassThru
+            Start-Sleep 12
+            if ($p.HasExited) { throw "界面打开后自己退出了（$page 页），退出码 $($p.ExitCode)" }
+            $p.Refresh(); "窗口标题：$($p.MainWindowTitle)"
+            Shot $page
+            Stop-Process $p -Force
+            Start-Sleep 1
+          }
+
+      - name: 第一次打开自动安装
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/WXLinks-windows.exe -PassThru
+          Start-Sleep 15
+          $exe = "$env:LOCALAPPDATA\Programs\公众号链接采集\WXLinks.exe"
+          $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\公众号链接采集.lnk"
+          if (-not (Test-Path $exe)) { throw "没装到 $exe" }
+          if (-not (Test-Path $lnk)) { throw "开始菜单里没有快捷方式" }
+          $running = Get-Process WXLinks -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }
+          if (-not $running) { throw "装好的那份没有打开" }
+          "已装好：$exe，开始菜单快捷方式已建，装好的那份已打开"
+          $running | Stop-Process -Force
+
+      - name: 只看不点的检查（没有微信时应提示「微信没有打开」）
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\probe.txt"
+          $p = Start-Process dist/WXLinks-windows.exe -ArgumentList '--engine', '--probe', '--dir', "$env:RUNNER_TEMP\wxdata" -RedirectStandardOutput $out -NoNewWindow -Wait -PassThru
+          Get-Content $out -Encoding utf8
+          if (-not (Select-String -Path $out -Pattern '文字识别' -Quiet)) { throw "检查没输出结果，退出码 $($p.ExitCode)" }
+
+      - name: 装中文文字识别（云端电脑默认没有，装不上不影响发布）
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Add-WindowsCapability -Online -Name "Language.OCR~~~zh-CN~0.0.1.0"
+          Get-WindowsCapability -Online -Name "Language.OCR*zh-CN*" | Format-List Name, State
+
+      - name: 自检中文文字识别（画几行字再认）
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\ocr.txt"
+          $p = Start-Process dist/WXLinks-windows.exe -ArgumentList '--engine', '--ocr-test', '--dir', "$env:RUNNER_TEMP\wxdata" -RedirectStandardOutput $out -NoNewWindow -Wait -PassThru
+          Get-Content $out -Encoding utf8
+          if ($p.ExitCode -ne 0) { throw "文字识别自检没通过，退出码 $($p.ExitCode)" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WXLinks-windows
+          path: dist/WXLinks-windows.exe
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-screenshots
+          path: shots/
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: WXLinks-*
+          path: dist
+          merge-multiple: true
+
       - name: 发布到 Releases
-        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          ls -l dist
           cat > notes.md <<'EOF'
-          **下载**：Mac 用户下载下面的 `WXLinks-mac.dmg`（Apple 芯片和 Intel 都能用，需要 macOS 14 或更新）。
-          也可以打开下载页，自动推荐适合你电脑的版本：https://carey314.github.io/wechat-article-links/
+          **下载**：打开下载页会自动推荐适合你电脑的版本：https://carey314.github.io/wechat-article-links/
 
-          **第一次打开**：这是没有付费签名的开源小工具，系统会拦一下。打开「系统设置 → 隐私与安全性」，在「安全性」里点「仍要打开」。详见安装包里的「第一次打开.txt」。
+          - **Mac**：下载 `WXLinks-mac.dmg`（Apple 芯片和 Intel 都能用，需要 macOS 14 或更新）。第一次打开系统会拦一下：打开「系统设置 → 隐私与安全性」，在「安全性」里点「仍要打开」。详见安装包里的「第一次打开.txt」。
+          - **Windows（测试版）**：下载 `WXLinks-windows.exe`（Windows 10 / 11，64 位，微信 4.x）。提示「Windows 已保护你的电脑」时点「更多信息」→「仍要运行」；第一次打开会自动装进开始菜单。电脑上要有中文文字识别（设置 → 时间和语言 → 语言和区域 → 添加「中文(简体，中国)」），应用里会提示。遇到问题把数据文件夹里的「诊断」和「运行日志.txt」发到 Issues。
           EOF
-          gh release create "$GITHUB_REF_NAME" output/WXLinks-mac.dmg --title "公众号链接采集 $GITHUB_REF_NAME" --notes-file notes.md
+          gh release create "$GITHUB_REF_NAME" dist/WXLinks-mac.dmg dist/WXLinks-windows.exe \
+            --repo "$GITHUB_REPOSITORY" --title "公众号链接采集 $GITHUB_REF_NAME" --notes-file notes.md

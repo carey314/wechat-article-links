@@ -1,0 +1,6 @@
+PROFILE	是
+CARD	实测gemini4argongoog	实测Gemini 4 Argon - Google这跌跌撞撞的背水一战。	794	284
+CARD	ai开始逆向一切你电脑里的每个软件都	Al开始逆向一切，你电脑里的每个软件都要被迫开源了。	794	577
+CARD	我花了5天时间对公司进行了一场ai化	我花了5天时间，对公司进行了一场AI化改造。	794	870
+RANGE	138	970
+PLAN	719	阅读10万+赞2952 3个朋友看过
