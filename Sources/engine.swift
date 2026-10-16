@@ -779,15 +779,40 @@ func sweep() throws -> Bool {
     var openedBy: [String: [String]] = [:]   // 每张卡片点开后拿到过哪些链接
     var opensHere = 0                         // 这一屏（上次翻页以后）点开了几次
     var scrollRatio = 1.0           // 微信页面实际移动的距离 ÷ 滚轮滚的距离，按上一次翻页的结果校准
-    var anchor: (text: String, x: CGFloat, y: CGFloat, asked: Double)?
+    var anchor: (text: String, x: CGFloat, y: CGFloat, asked: Double)?   // 上次翻页前最下面那张卡片的阅读数
+    var backtracks = 0
     while true {
         if added >= maxCount { return false }
         try refreshWindow()
         let (profileTab, boxes) = try ensureProfile()
-        // 校准：上次翻页前记下的那行字，现在移到哪儿了
-        if let a = anchor, let b = boxes.first(where: { $0.text == a.text && abs($0.rect.minX - a.x) < 15 }) {
-            let moved = Double(a.y - b.rect.minY)
-            if moved > 20 { scrollRatio = min(max(0.5 * scrollRatio + 0.5 * moved / a.asked, 0.3), 3) }
+        // 翻页前最下面那张卡片的阅读数，翻完应该停在可点区域靠上的位置。
+        // 找不到它，说明翻过头了：紧挨在它下面的那张卡片，标题可能被翻到顶上挡住了，会漏掉。往回拨一点再看
+        if let a = anchor {
+            let top = clickableRange(boxes).top
+            let key = normalize(a.text)
+            let found = boxes.first {
+                Double($0.rect.minY) >= top - 5 && abs($0.rect.minX - a.x) < 15
+                    && $0.text.hasPrefix("阅读") && editDistance(normalize($0.text), key) <= 1
+            }
+            if let b = found {
+                backtracks = 0
+                // 校准滚动比例：宁可估大（翻得少、多看一屏），不能估小（翻过头）。所以往大了改得快，往小了改得慢
+                let moved = Double(a.y - b.rect.minY)
+                if a.asked > 0 && moved > 20 {
+                    let r = moved / a.asked
+                    scrollRatio = r > scrollRatio ? 0.3 * scrollRatio + 0.7 * r : 0.8 * scrollRatio + 0.2 * r
+                    scrollRatio = min(max(scrollRatio, 0.5), 2.5)
+                }
+            } else if backtracks < 4 {
+                backtracks += 1
+                scrollRatio = min(scrollRatio * 1.3, 2.5)
+                log("翻过头了（上一屏最下面那篇不见了），往回拨一点，免得漏掉顶上的文章")
+                let visible = clickableRange(boxes).bottom - top
+                try scrollDown(Double(a.x) + 100, Double(win.height) * 0.55, -Int(visible * 0.35))
+                anchor = (a.text, a.x, a.y, 0)   // 继续找它，这次不拿来校准
+                pause(0.7, 1.0)
+                continue
+            }
         }
         anchor = nil
         let (cards, notRead) = visibleCards(boxes)
@@ -869,7 +894,7 @@ func sweep() throws -> Bool {
         }
         lastSignature = signature
         let plan = plannedScroll(boxes)
-        let ask = plan.points / scrollRatio
+        let ask = plan.points * 0.9 / scrollRatio   // 少翻一点：翻不够只是多看一屏，翻过头会漏
         if let a = plan.anchor { anchor = (a.text, a.rect.minX, a.rect.minY, ask) }
         try scrollDown(column, Double(win.height) * 0.55, Int(ask))
         opensHere = 0
@@ -980,9 +1005,20 @@ do {
     loadRecords()
     log("开始采集「\(account)」→ \(mdPath)（已有 \(urls.count) 条，已点过 \(entries.count) 篇）。误碰鼠标会暂停、停手 5 秒自动继续；鼠标甩到主屏幕左上角彻底停止。")
     var reachedEnd = false
+    var lookedBack = false
     if !recheckOnly {
         reachedEnd = try resumable { () -> Bool in
-            if entries.isEmpty { try scrollToTop(); cursorIndex = -1 }
+            if entries.isEmpty {
+                try scrollToTop()
+                cursorIndex = -1
+            } else if !lookedBack {
+                // 接着上次采：先往回翻半屏多一点，上次停下时顶上要是有漏掉的，这次能补上（点过的会直接跳过）
+                lookedBack = true
+                _ = try ensureProfile()
+                log("接着上次采：先往回翻一点，看看停下的地方有没有漏的")
+                try scrollDown(Double(win.width) * 0.5, Double(win.height) * 0.55, -Int(Double(win.height) * 0.6))
+                pause(0.7, 1.0)
+            }
             return try sweep()
         }
     }
