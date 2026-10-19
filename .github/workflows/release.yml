@@ -14,7 +14,24 @@ permissions:
   contents: write
 
 jobs:
+  # Mac 代码（Sources / Resources / tools）和上一个版本比没变，就不重新编 Mac，发版时沿用上一版的 dmg
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      mac: ${{ steps.diff.outputs.mac }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        run: |
+          prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          if [ -z "$prev" ] || ! git diff --quiet "$prev" HEAD -- Sources Resources tools; then echo "mac=true" >> "$GITHUB_OUTPUT"; else echo "mac=false" >> "$GITHUB_OUTPUT"; fi
+          echo "上一个版本：${prev:-无}"; cat "$GITHUB_OUTPUT"
+
   mac:
+    needs: changes
+    if: needs.changes.outputs.mac == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -134,8 +151,8 @@ jobs:
           path: shots/
 
   release:
-    if: github.ref_type == 'tag'
-    needs: [mac, windows]
+    if: always() && github.ref_type == 'tag' && needs.windows.result == 'success' && (needs.mac.result == 'success' || needs.mac.result == 'skipped')
+    needs: [changes, mac, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -143,6 +160,15 @@ jobs:
           pattern: WXLinks-*
           path: dist
           merge-multiple: true
+
+      - name: Mac 没改：沿用上一版的 dmg（原文件，不重新编）
+        if: needs.mac.result == 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prev=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          gh release download "$prev" --repo "$GITHUB_REPOSITORY" -p WXLinks-mac.dmg -D dist
+          echo "Mac 安装包沿用 $prev 的"
 
       - name: 发布到 Releases
         env:
