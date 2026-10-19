@@ -8,6 +8,9 @@ namespace WXLinks.Engine;
 /// 坐标都是这张截图里的像素
 public static class Vision
 {
+    /// 录屏量的按钮位置，单位是标签高：「×」在标签右边往左 0.5 个，「···」1.3 个，「刷新 / 停止加载」2.1 个，相邻两个隔 0.82 个
+    public const double CloseAt = 0.5, DotsAt = 1.3, RefreshAt = 2.1, Gap = 0.82;
+
     public static bool Light(int v) => v >= 222 && v <= 244;
 
     /// 标签栏有多高：从上往下，碰到一整行几乎全白（网页）就是标签栏到头了；认不出就当整张图都是

@@ -115,6 +115,9 @@ if (args.Length > 1 && Directory.Exists(args[1]))
                     Check(di is >= 0 and < 3 && ci is >= 0 and < 3 && (closeFirst < 0 || closeFirst > di),
                         $"录屏帧 {name}（标签{what}）：「···」排第 {di + 1}、「×」排第 {ci + 1}");
                 }
+                // 按比例算的位置：离真按钮不超过 0.15 个标签高（点得中）
+                double pd = tb.Right - Vision.DotsAt * tb.H, pc = tb.Right - Vision.CloseAt * tb.H;
+                Check(Math.Abs(pd - ed) <= tb.H * 0.15 && Math.Abs(pc - ex) <= tb.H * 0.15, $"录屏帧 {name}：按比例算的「···」{pd:F0}（真 {ed:F0}）、「×」{pc:F0}（真 {ex:F0}）");
                 // 记住的位置要排第一
                 double k = (tb.Right - ed) / tb.H;
                 Check(Math.Abs(Vision.DotsCandidates(lum, w, h, tb, k)[0] - ed) <= 1, $"录屏帧 {name}：记住的「···」位置排第一");

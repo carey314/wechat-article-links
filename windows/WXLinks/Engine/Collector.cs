@@ -227,7 +227,7 @@ public static class Collector
             if (cands != null) txt.AppendLine($"蓝线（「···」或「×」可能在的位置）：{string.Join("、", cands.Select(x => x.ToString("F0")))}");
             int n = 0;
             foreach (var c in clicks) txt.AppendLine($"绿十字 {++n}（点了{c.What}）：({c.X:F0}, {c.Y:F0})");
-            txt.AppendLine($"记住的位置：「···」离标签右边 {dotsK:F2} 个标签高，「×」{closeK:F2} 个；Ctrl+W {(ctrlWWorks ? "能用或没试" : "不管用")}");
+            txt.AppendLine($"记住的位置：「···」离标签右边 {dotsK:F2} 个标签高，「×」{closeK:F2} 个；「刷新 / ··· / ×」按比例在标签右边往左 {RefreshAt} / {DotsAt} / {CloseAt} 个标签高");
             txt.AppendLine("---- 微信窗口 ----");
             foreach (var w in Platform.Windows().Where(Platform.IsWeChat))
                 txt.AppendLine($"{w.ProcessName} 「{w.Title}」 类名={w.Class} 位置=({w.Bounds.X},{w.Bounds.Y} {w.Bounds.W}x{w.Bounds.H}) 最小化={w.Minimized} {(w.Handle == wx ? "← 公众号窗口" : "")}");
@@ -431,9 +431,8 @@ public static class Collector
 
     record Result(string? Url, bool Loaded, bool Matched, string Opened = "", string OpenedTitle = "");
 
-    static bool toldNotOpened, toldGeometry, toldCtrlW, toldDots;
+    static bool toldNotOpened, toldGeometry;
     static double? dotsK, closeK;   // 这次运行里点中过的「···」「×」：离标签右边几个标签高。后面的文章先点这里
-    static bool ctrlWWorks = true;  // 按 Ctrl+W 能关掉文章标签；不行就改点「×」
     static readonly List<(double X, double Y, string What)> clicks = [];   // 这篇文章在标签栏上点过的位置，存诊断截图时画上
     static string NoCtrlWPath => Path.Combine(dataDir, ".不按CtrlW");
 
@@ -450,64 +449,107 @@ public static class Collector
     static List<double> DotsCands(Box tab) { using var s = Grab(new Box(0, 0, win.W, BandH)); return Vision.DotsCandidates(s.Luma, s.Width, s.Height, tab, dotsK); }
     static List<double> CloseCands(Box tab) { using var s = Grab(new Box(0, 0, win.W, BandH)); return Vision.CloseCandidates(s.Luma, s.Width, s.Height, tab, closeK); }
 
-    static Result CopyLink(Card card, Box profileTab)
+    // 录屏量出来的位置（单位：标签高。程序每次在屏幕上现量文章标签的右边和高度，再按这个比例算）：
+    // 「×」在标签右边往左 0.5 个，「···」1.3 个，「刷新 / 停止加载」2.1 个，相邻两个按钮隔 0.82 个
+    const double CloseAt = Vision.CloseAt, DotsAt = Vision.DotsAt, RefreshAt = Vision.RefreshAt, Gap = Vision.Gap;
+
+    enum Hit { Menu, Closed, Refreshed, Nothing }
+
+    /// 在文章标签上点完一下，看发生了什么：弹出菜单 / 文章被关了（点到「×」）/ 页面在刷新（点到「刷新」）/ 没反应
+    static (Hit Hit, TextBox? Copy) Observe(double x, Box tab, Box profileTab)
     {
-        // 点卡片，等文章在主页标签右边打开成新的当前标签（标签一多会自动变窄，只能比左边起点）。
-        // 第一下点击有时只是把微信窗口激活了，没反应就再点一次
-        Box? opened = null;
-        for (int attempt = 0; attempt < 2 && opened == null; attempt++)
+        var (opened, copy) = WaitMenu(x, tab);
+        if (opened) return (Hit.Menu, copy);
+        Park();
+        var t = ActiveTab();
+        bool still = t is Box a && Math.Abs(a.X - tab.X) <= S(40) && a.X > profileTab.X + S(60);
+        if ((t is Box b && b.X < tab.X - S(60)) || (!still && ProfileOnTop())) return (Hit.Closed, null);
+        if (still && Loading((Box)t!)) return (Hit.Refreshed, null);
+        return (Hit.Nothing, null);
+    }
+
+    /// 文章在加载：标签上的字变回「微信公众平台」，或者「···」左边出现了「停止加载」（鼠标挪开时那里本来没有图标）
+    static bool Loading(Box tab)
+    {
+        if (IsPlaceholder(TabTitle(tab, tab.Right - (DotsAt + 0.4) * tab.H))) return true;
+        using var s = Grab(new Box(0, 0, win.W, BandH));
+        return Vision.BandIcons(s.Luma, s.Width, s.Height, tab, tab.X, tab.Right)
+            .Any(c => c > tab.Right - (RefreshAt + 0.4) * tab.H && c < tab.Right - (RefreshAt - 0.4) * tab.H);
+    }
+
+    /// 等文章加载完（标签换成文章标题），返回标签上的字
+    static string WaitTitle(Box tab, DateTime t0, ref bool toldSlow)
+    {
+        while (true)
+        {
+            var text = TabTitle(tab, tab.Right - (DotsAt + 0.4) * tab.H);
+            if (!IsPlaceholder(text)) return text;
+            double waited = (DateTime.Now - t0).TotalSeconds;
+            if (waited > LoadTimeout) return text;
+            if (waited > 4 && !toldSlow) { Log("网络有点慢，等文章加载出来…"); toldSlow = true; SaveStatus(new() { ["state"] = "running" }); }
+            Thread.Sleep(250);
+        }
+    }
+
+    /// 点卡片，等文章在主页标签右边打开成新的当前标签。第一下点击有时只是把微信窗口激活了，没反应就再点一次
+    static Box? OpenArticle(Card card, Box profileTab)
+    {
+        for (int attempt = 0; attempt < 2; attempt++)
         {
             Click(card.X, card.Y);
             for (int i = 0; i < (attempt == 0 ? 13 : 20); i++)
             {
                 Thread.Sleep(200);
-                if (ActiveTab() is Box t && t.X > profileTab.X + S(60)) { opened = t; break; }
+                if (ActiveTab() is Box t && t.X > profileTab.X + S(60)) return SettledTab(t);
             }
         }
-        if (opened is not Box tab0)
-        {
-            Platform.Key(Platform.VK_ESCAPE);
-            Log($"⚠️ 点了没打开新标签，跳过：{card.Title}");
-            if (!toldNotOpened) { toldNotOpened = true; Diag("点了没打开新标签", tab: lastProfileTab); }
-            return new Result(null, false, false);
-        }
-        var tab = SettledTab(tab0);
-        clicks.Clear();
-        if (!toldGeometry)
-        {
-            // 第一篇：把认出的位置记进日志，并存一张标了位置的截图，出问题时对着看
-            toldGeometry = true;
-            var dc = DotsCands(tab);
-            Log($"文章标签：左 {tab.X:F0} 右 {tab.Right:F0} 高 {tab.H:F0}（主页标签左 {profileTab.X:F0}）；「···」可能在 {string.Join("、", dc.Select(x => x.ToString("F0")))}");
-            Diag("第一篇文章打开后", tab: tab, cands: dc);
-        }
+        return null;
+    }
 
-        // 等加载完：标签从「微信公众平台」换成文章标题
-        var t0 = DateTime.Now;
+    static Result CopyLink(Card card, Box profileTab)
+    {
+        clicks.Clear();
+        string? url = null;
         string tabText = "";
-        bool toldSlow = false;
-        double dotsLeft = Buttons(tab).DotsLeft;
-        while (true)
+        bool loaded = false, toldSlow = false;
+        int tries = 0;
+        var t0 = DateTime.Now;
+        Box? last = null;
+        // 最多打开 3 次：点「···」时点到了「×」把文章关了，就重新打开这篇再点（这时已经知道「···」在哪了）
+        for (int open = 0; open < 3 && url == null; open++)
         {
-            tabText = TabTitle(tab, dotsLeft);
-            if (!IsPlaceholder(tabText)) break;
-            double waited = (DateTime.Now - t0).TotalSeconds;
-            if (waited > LoadTimeout) break;
-            if (waited > 4 && !toldSlow) { Log("网络有点慢，等文章加载出来…"); toldSlow = true; SaveStatus(new() { ["state"] = "running" }); }
-            Thread.Sleep(250);
+            if (open > 0 && !ProfileOnTop()) break;
+            var tab = OpenArticle(card, profileTab);
+            if (tab is not Box tb)
+            {
+                Platform.Key(Platform.VK_ESCAPE);
+                Log($"⚠️ 点了没打开新标签，跳过：{card.Title}");
+                if (!toldNotOpened) { toldNotOpened = true; Diag("点了没打开新标签", tab: lastProfileTab); }
+                return new Result(null, false, false);
+            }
+            last = tb;
+            if (!toldGeometry)
+            {
+                // 第一篇：把认出的位置记进日志，并存一张标了位置的截图，出问题时对着看
+                toldGeometry = true;
+                Log($"文章标签：左 {tb.X:F0} 右 {tb.Right:F0} 高 {tb.H:F0}（窗口 {win.W:F0}x{win.H:F0}，缩放 {Scale * 100:F0}%）；按比例算：刷新 {tb.Right - RefreshAt * tb.H:F0}、··· {tb.Right - DotsAt * tb.H:F0}、× {tb.Right - CloseAt * tb.H:F0}");
+                Diag("第一篇文章打开后", tab: tb, cands: [tb.Right - RefreshAt * tb.H, tb.Right - DotsAt * tb.H, tb.Right - CloseAt * tb.H]);
+            }
+            tabText = WaitTitle(tb, t0, ref toldSlow);
+            loaded = !IsPlaceholder(tabText);
+            var (u, closed) = TryCopy(tb, profileTab, t0, ref tries);
+            url = u;
+            if (closed && url == null) { Log("点「···」时点到了「×」，文章被关了；已按它往左挪一格，重新打开这篇再点"); last = null; continue; }
+            break;
         }
-        bool loaded = !IsPlaceholder(tabText);
         bool matched = loaded && SameArticle(tabText, card);
         if (loaded && !matched) Log($"⚠️ 打开的文章和要点的对不上（标签：{tabText}，卡片：{card.Title}）");
+        if (url != null && tries > 1) Log($"这篇点了 {tries} 次「···」才拿到链接");
+        if (url == null) Log(loaded ? $"⚠️ 没拿到链接，先跳过，补漏时再试：{card.Title}" : $"⚠️ 等了 {(int)LoadTimeout} 秒还没加载出来，先跳过，补漏时再试：{card.Title}");
 
-        double loadWait = (DateTime.Now - t0).TotalSeconds;
-        string? url = FindAndCopy(tab, profileTab, t0, loaded, out int tries);
-        if (url != null && (loadWait > 3 || tries > 1)) Log($"这篇慢：等加载 {loadWait:F1} 秒，点了 {tries} 次「···」");
-        if (url == null) Log(loaded ? $"⚠️ 没拿到链接：{card.Title}" : $"⚠️ 等了 {(int)LoadTimeout} 秒还没加载出来，先跳过，补漏时再试：{card.Title}");
-
-        if (!CloseTab(tab, profileTab))
+        if (last is Box lt && !CloseTab(lt, profileTab))
         {
-            Diag("文章标签关不掉", [$"文章标签：{tab}"], tab, CloseCands(tab));
+            Diag("文章标签关不掉", [$"文章标签：{lt}"], lt, [lt.Right - CloseAt * lt.H]);
             throw new StopError("文章标签关不掉，已停下（请手动关掉文章、回到公众号主页后再开始，并把「诊断」文件夹发给作者）");
         }
         return new Result(url, loaded, matched, loaded ? Normalize(tabText) : "", loaded ? tabText : "");
@@ -523,7 +565,7 @@ public static class Collector
         double x0 = Math.Max(0, x - th * 11), x1 = Math.Min(win.W, x + th * 6);
         double y0 = Math.Max(0, tab.Y + th * 0.5), y1 = Math.Min(win.H, tab.Bottom + th * 9);
         bool opened = false;
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < 5; i++)
         {
             Thread.Sleep(200);
             var boxes = Snap(new Box(x0, y0, x1 - x0, y1 - y0));
@@ -536,68 +578,84 @@ public static class Collector
         return (opened, null);
     }
 
-    /// 找「···」点开，菜单里认到「复制链接」就点，等剪贴板变化拿链接。
-    /// 「···」可能在的几个位置挨个试：点了没弹出菜单就按 Esc 换下一个；点中了记住位置，后面的文章直接点那里
-    static string? FindAndCopy(Box tab, Box profileTab, DateTime t0, bool loaded, out int tries)
+    /// 记住「···」的位置（「×」在它右边一格）
+    static void LearnDots(Box tab, double x)
     {
-        tries = 0;
-        var missed = new List<double>();   // 点了没弹出菜单的位置
-        bool sawMenu = false;
-        while ((DateTime.Now - t0).TotalSeconds < LoadTimeout + 5)
+        double k = (tab.Right - x) / tab.H;
+        if (dotsK is double old && Math.Abs(old - k) < 0.15) return;
+        dotsK = k;
+        closeK ??= Math.Max(0.2, k - Gap);
+        Log($"「···」在文章标签右边往左 {tab.Right - x:F0} 像素（{k:F2} 个标签高），后面直接点这里");
+    }
+
+    /// 点「···」→ 看结果 → 修正位置再点，直到菜单里出现「复制链接」。返回链接，或者「文章被点关了」
+    static (string? Url, bool Closed) TryCopy(Box tab, Box profileTab, DateTime t0, ref int tries)
+    {
+        double x = dotsK is double k ? tab.Right - k * tab.H : DotsCands(tab).FirstOrDefault(tab.Right - DotsAt * tab.H);
+        var tried = new List<double>();
+        int misses = 0;
+        bool told = false;
+        while ((DateTime.Now - t0).TotalSeconds < LoadTimeout + 10 && misses < 8)
         {
             Park();
-            var cur = ActiveTab();
-            // 当前标签不是这篇文章了（多半是点到了「×」或别的标签）：不在这篇上继续点
-            if (cur is not Box c || Math.Abs(c.X - tab.X) > S(40) || c.X <= profileTab.X + S(60))
-            {
-                Log("点「···」时文章标签不见了（可能点到了「×」），这篇先跳过，补漏时再试");
-                return null;
-            }
+            if (ActiveTab() is not Box c || Math.Abs(c.X - tab.X) > S(40) || c.X <= profileTab.X + S(60)) return (null, true);
             tab = c;
-            var cands = DotsCands(tab);
-            double? next = null;
-            foreach (var x in cands) if (!missed.Any(m => Math.Abs(m - x) < tab.H * 0.25)) { next = x; break; }
-            if (next is not double nx)
-            {
-                Diag("找不到能点开菜单的「···」", [$"文章标签：{tab}", $"试过的位置：{string.Join("、", missed.Select(m => m.ToString("F0")))}"], tab, cands);
-                return null;
-            }
+            double th = tab.H;
+            x = Math.Clamp(x, tab.X + th, tab.Right - th * 0.2);
             tries++;
-            ClickMark(nx, tab.MidY, "···");
-            var (opened, item) = WaitMenu(nx, tab);
-            if (opened)
+            tried.Add(x);
+            ClickMark(x, tab.MidY, "···");
+            var (hit, item) = Observe(x, tab, profileTab);
+            switch (hit)
             {
-                sawMenu = true;
-                double k = (tab.Right - nx) / tab.H;
-                if (dotsK is not double old || Math.Abs(old - k) > 0.2)
-                {
-                    dotsK = k;
-                    if (!toldDots) { toldDots = true; Log($"找到了「···」：在文章标签右边往左 {tab.Right - nx:F0} 像素，后面直接点这里"); }
-                }
+                case Hit.Menu:
+                    LearnDots(tab, x);
+                    if (item != null)
+                    {
+                        uint before = Platform.ClipboardSeq();
+                        Click(item.Rect.MidX, item.Rect.MidY);
+                        for (int i = 0; i < 20 && Platform.ClipboardSeq() == before; i++) Thread.Sleep(100);
+                        var s = Platform.ClipboardSeq() != before ? Platform.ClipboardText()?.Trim() : null;
+                        if (s != null && s.StartsWith("http") && s.Contains("mp.weixin.qq.com")) return (s, false);
+                        Log(s == null ? "点了「复制链接」，剪贴板没变化" : $"剪贴板里不是公众号文章链接：{(s.Length > 60 ? s[..60] : s)}");
+                        return (null, false);
+                    }
+                    Platform.Key(Platform.VK_ESCAPE);   // 菜单里还没有「复制链接」：页面没加载完，等一下再点同一个位置
+                    Thread.Sleep(900);
+                    continue;
+                case Hit.Closed:
+                    // 点到的是「×」：「···」在它左边一格
+                    closeK = (tab.Right - x) / th;
+                    LearnDots(tab, x - Gap * th);
+                    return (null, true);
+                case Hit.Refreshed:
+                    // 点到的是「刷新」：「···」在它右边一格。等页面重新加载完再点
+                    if (!told) { told = true; Log("点到了「刷新」，往右挪一格再点「···」"); }
+                    misses++;
+                    x += Gap * th;
+                    bool slow = true;
+                    WaitTitle(tab, DateTime.Now, ref slow);
+                    continue;
+                default:
+                    // 没反应：可能点在空白或字上。先试认出来的小图标，再在算出的位置左右挪一点
+                    Platform.Key(Platform.VK_ESCAPE);
+                    misses++;
+                    double est = tab.Right - DotsAt * th;
+                    var next = DotsCands(tab).Concat([est + 0.4 * th, est - 0.4 * th, est + 0.8 * th, est - 0.8 * th])
+                        .Where(v => v > tab.X + th && v < tab.Right - th * 0.2)
+                        .FirstOrDefault(v => !tried.Any(t => Math.Abs(t - v) < th * 0.25), double.NaN);
+                    if (double.IsNaN(next)) { misses = 99; break; }
+                    x = next;
+                    continue;
             }
-            if (item != null)
-            {
-                uint before = Platform.ClipboardSeq();
-                Click(item.Rect.MidX, item.Rect.MidY);
-                for (int i = 0; i < 20 && Platform.ClipboardSeq() == before; i++) Thread.Sleep(100);
-                var s = Platform.ClipboardSeq() != before ? Platform.ClipboardText()?.Trim() : null;
-                if (s != null && s.StartsWith("http") && s.Contains("mp.weixin.qq.com")) return s;
-                if (s == null) Log("点了「复制链接」，剪贴板没变化");
-                else Log($"剪贴板里不是公众号文章链接：{(s.Length > 60 ? s[..60] : s)}");
-                return null;
-            }
-            Platform.Key(Platform.VK_ESCAPE);
-            Thread.Sleep(250);
-            if (opened) { Thread.Sleep(700); continue; }   // 菜单出来了，只是还没有「复制链接」：等页面加载完再点同一个位置
-            missed.Add(nx);
         }
-        if (loaded && !sawMenu) Diag("点了「···」一直没弹出菜单", [$"文章标签：{tab}"], tab, DotsCands(tab));
-        return null;
+        Diag("点「···」一直没弹出菜单", [$"文章标签：{tab}", $"点过的位置：{string.Join("、", tried.Select(v => v.ToString("F0")))}"], tab, [tab.Right - RefreshAt * tab.H, tab.Right - DotsAt * tab.H, tab.Right - CloseAt * tab.H]);
+        return (null, false);
     }
 
     /// 关掉主页标签右边的这个文章标签，确认回到公众号主页。
-    /// 先按 Ctrl+W（只关当前标签）：按之前确认当前标签就是这篇文章、微信浏览器窗口在最前面；
-    /// 按了没关掉就改点「×」，可能的几个位置挨个试，每次点前都再确认一遍。认不准就返回 false，由调用的地方存诊断截图后停下
+    /// 按算出的位置点「×」→ 看结果：回到主页就成了；弹出菜单说明点到了「···」，往右挪一格；页面刷新说明点到了「刷新」，往右挪两格；
+    /// 每次点前都确认当前标签还是这篇文章。点不掉才按 Ctrl+W（只关当前标签）。认不准就返回 false，由调用的地方存诊断截图后停下
     static bool CloseTab(Box tab, Box profileTab)
     {
         bool StillThere(Box? t) => t is Box a && Math.Abs(a.X - tab.X) <= S(40) && a.X > profileTab.X + S(60);
@@ -605,8 +663,8 @@ public static class Collector
         void CheckWindow()
         {
             if (Platform.Exists(wx)) return;
-            try { File.WriteAllText(NoCtrlWPath, "按 Ctrl+W 会把整个微信浏览器窗口关掉，以后改点「×」"); } catch { }
-            throw new StopError("按 Ctrl+W 把整个微信浏览器窗口关掉了。下次不再按 Ctrl+W，改点「×」。请重新打开公众号主页后再开始，并把运行日志发给作者");
+            try { File.WriteAllText(NoCtrlWPath, "按 Ctrl+W 会把整个微信浏览器窗口关掉，以后只点「×」"); } catch { }
+            throw new StopError("微信浏览器窗口被整个关掉了。请重新打开公众号主页后再开始，并把运行日志发给作者");
         }
         bool WaitBack(int ms)
         {
@@ -626,48 +684,45 @@ public static class Collector
         Park();
         var now = ActiveTab();
         if (IsBack(now)) return true;
-        if (!StillThere(now))
-        {
-            if (ProfileOnTop()) return true;
-            Thread.Sleep(400);
-            now = ActiveTab();
-            if (IsBack(now)) return true;
-            if (!StillThere(now)) return ProfileOnTop();
-        }
+        if (!StillThere(now)) { Thread.Sleep(400); now = ActiveTab(); if (IsBack(now)) return true; if (!StillThere(now)) return ProfileOnTop(); }
 
-        if (ctrlWWorks && !File.Exists(NoCtrlWPath))
-        {
-            CheckUser();
-            if (Platform.Foreground() == wx)
-            {
-                Platform.Chord(Platform.VK_W);
-                if (WaitBack(1600))
-                {
-                    if (!toldCtrlW) { toldCtrlW = true; Log("关文章用 Ctrl+W（只关当前这篇文章的标签）"); }
-                    return true;
-                }
-                ctrlWWorks = false;
-                Log("按 Ctrl+W 没关掉文章标签，改点标签上的「×」");
-            }
-        }
-
+        var cur = (Box)now!;
+        double x = closeK is double ck ? cur.Right - ck * cur.H : CloseCands(cur).FirstOrDefault(cur.Right - CloseAt * cur.H);
         var tried = new List<double>();
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 5; i++)
         {
             Park();
             now = ActiveTab();
             if (IsBack(now)) return true;
             if (!StillThere(now)) return ProfileOnTop();
-            var cur = (Box)now!;
-            double? next = null;
-            foreach (var x in CloseCands(cur)) if (!tried.Any(t => Math.Abs(t - x) < cur.H * 0.25)) { next = x; break; }
-            if (next is not double nx) break;
-            tried.Add(nx);
-            Move(nx, cur.MidY);   // 鼠标先停上去，「×」才会亮
+            cur = (Box)now!;
+            double th = cur.H;
+            x = Math.Clamp(x, cur.X + th, cur.Right - th * 0.1);
+            if (tried.Any(t => Math.Abs(t - x) < th * 0.25))
+            {
+                double nx = CloseCands(cur).Concat([cur.Right - CloseAt * th, cur.Right - (CloseAt - 0.25) * th, cur.Right - (CloseAt + 0.3) * th])
+                    .FirstOrDefault(v => !tried.Any(t => Math.Abs(t - v) < th * 0.25), double.NaN);
+                if (double.IsNaN(nx)) break;
+                x = nx;
+            }
+            tried.Add(x);
+            Move(x, cur.MidY);   // 鼠标先停上去，「×」才会亮
             Thread.Sleep(250);
-            ClickMark(nx, cur.MidY, "×");
-            if (WaitBack(1600)) { closeK = (cur.Right - nx) / cur.H; return true; }
+            ClickMark(x, cur.MidY, "×");
+            if (WaitBack(1200)) { closeK = (cur.Right - x) / th; return true; }
+            var (menu, _) = WaitMenu(x, cur);
+            if (menu) { Platform.Key(Platform.VK_ESCAPE); Thread.Sleep(250); x += Gap * th; continue; }   // 点到了「···」
+            Park();
+            if (Loading(cur)) { x += 2 * Gap * th; continue; }                                           // 点到了「刷新」
         }
+
+        // 点不掉：确认当前标签还是这篇文章、微信浏览器窗口在最前面，再按 Ctrl+W（只关当前标签）
+        Park();
+        if (!StillThere(ActiveTab()) || File.Exists(NoCtrlWPath)) return IsBack(ActiveTab()) || ProfileOnTop();
+        CheckUser();
+        if (Platform.Foreground() != wx) return false;
+        Platform.Chord(Platform.VK_W);
+        if (WaitBack(1600)) { Log("点「×」没关掉，用 Ctrl+W 关掉了"); return true; }
         return false;
     }
 
