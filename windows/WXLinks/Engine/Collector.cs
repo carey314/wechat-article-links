@@ -43,6 +43,9 @@ public static class Collector
     static Box? lastProfileTab;        // 上一次确认过的公众号主页标签，用来认出右边多开着的文章
     static double pxPerNotch;          // 滚轮一格页面移动多少像素（开始时量一次）
     static Platform.POINT lastPos;
+    static int uiPid;                                   // 启动它的界面；界面没了（被强制关掉）就停下，不在后台接着点
+    static System.Diagnostics.Process? uiProc;
+    static void CheckUi() { if (uiProc is { HasExited: true }) throw new StopError("界面已经关掉了，采集也停下", true); }
 
     static double BandH => S(96);      // 截标签栏截这么高（标签栏实际多高由 Vision 按颜色找，多截一点没关系）
     static double ContentTop => S(40);
@@ -253,22 +256,55 @@ public static class Collector
     static void CheckUser()
     {
         if (File.Exists(stopPath)) throw new StopError("收到停止指令，已停止", true);
+        CheckUi();
         var c = Platform.Cursor();
         if (AtStopCorner(c)) throw new StopError("你把鼠标甩到了屏幕左上角，已彻底停止", true);
         double Dist(Platform.POINT a) => Math.Sqrt(Math.Pow(a.X - lastPos.X, 2) + Math.Pow(a.Y - lastPos.Y, 2));
         if (Dist(c) > S(25)) { Thread.Sleep(150); c = Platform.Cursor(); }
         if (Dist(c) > S(25)) throw new Interrupted("你动了鼠标");
-        if (!Platform.WeChatIsFront()) throw new Interrupted("微信被切到后面了");
+        // 鼠标没动、微信却不在最前面：多半是别的窗口自己冒出来了，先切回去接着干，切不回去才暂停
+        if (!Platform.WeChatIsFront() && !Activate()) throw new Interrupted("微信被切到后面了");
     }
 
-    /// 等你停手：键盘鼠标都静止 5 秒再继续
+    /// 把公众号所在的微信窗口切到最前面。系统有时不让后台程序切窗口（切了没反应），
+    /// 那就在窗口左边的空白处点一下：公众号主页和文章页左右两边都是空白，点了不会打开东西
+    static bool Activate()
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            if (Platform.Foreground() == wx) return true;
+            Platform.BringToFront(wx);
+            Thread.Sleep(400);
+        }
+        if (Platform.Foreground() == wx) return true;
+        win = Platform.Bounds(wx);
+        int sx = (int)(win.X + S(24)), sy = (int)(win.Y + win.H * 0.6);
+        if (win.W < S(700) || !Platform.TopmostAt(wx, sx, sy)) return false;
+        Platform.MoveTo(sx, sy);
+        Thread.Sleep(100);
+        Platform.LeftClick();
+        lastPos = new Platform.POINT { X = sx, Y = sy };
+        Thread.Sleep(400);
+        bool ok = Platform.Foreground() == wx;
+        if (!toldActivate) { toldActivate = true; Log(ok ? "微信窗口切不到前面，在窗口左边空白处点了一下，切过来了" : "⚠️ 微信窗口切不到前面（点了窗口空白处也不行）"); }
+        return ok;
+    }
+    static bool toldActivate;
+
+    /// 等你停手：键盘鼠标都静止 5 秒再继续。有的电脑一直有输入信号（远程控制软件、手写板之类），系统算不出「静止」，
+    /// 所以鼠标 5 秒没挪过也算停手
     static void WaitForIdle()
     {
+        var p = Platform.Cursor();
+        var still = DateTime.Now;
         while (true)
         {
             if (File.Exists(stopPath)) throw new StopError("收到停止指令，已停止", true);
-            if (AtStopCorner(Platform.Cursor())) throw new StopError("你把鼠标甩到了屏幕左上角，已彻底停止", true);
-            if (Platform.IdleSeconds() >= 5) return;
+            CheckUi();
+            var c = Platform.Cursor();
+            if (AtStopCorner(c)) throw new StopError("你把鼠标甩到了屏幕左上角，已彻底停止", true);
+            if (Math.Abs(c.X - p.X) > 3 || Math.Abs(c.Y - p.Y) > 3) { p = c; still = DateTime.Now; }
+            if (Platform.IdleSeconds() >= 5 || (DateTime.Now - still).TotalSeconds >= 5) return;
             Thread.Sleep(300);
         }
     }
@@ -352,7 +388,7 @@ public static class Collector
         for (int i = 0; i < 6; i++)
         {
             RefreshWin();
-            if (Platform.Foreground() != wx) { Platform.BringToFront(wx); Thread.Sleep(500); }
+            if (Platform.Foreground() != wx) Activate();
             if (ActiveTab() is not Box tab)
             {
                 // 刚切回来、窗口还在动画，或者有菜单挡着：收起菜单、把窗口拉到前面再看几次
@@ -384,18 +420,30 @@ public static class Collector
         throw new StopError("当前页面不像公众号主页，已停下（请切回公众号主页后再开始）");
     }
 
-    /// 新开一个文件从头采：先翻回主页最顶上（看到「xx篇原创内容」那行为止）
+    /// 新开一个文件从头采：先翻回主页最顶上。看到「xx篇原创内容」那行就是到顶了；
+    /// 有的号没有这一行（或者认不出来），就看往上翻还动不动：连着两次翻完画面没变，就是到顶了
     static void ScrollToTop()
     {
         EnsureProfile();
-        bool AtTop() => Snap(new Box(0, 0, win.W, win.H * 0.5)).Any(b => b.Text.Replace(" ", "").Contains("篇原创"));
-        if (AtTop()) return;
+        List<TextBox> Top() => Snap(new Box(0, 0, win.W, win.H * 0.5));
+        static bool Original(List<TextBox> b) => b.Any(x => x.Text.Replace(" ", "").Contains("篇原创"));
+        static string Sig(List<TextBox> b) => string.Concat(b.Select(x => x.Text));
+        var top = Top();
+        if (Original(top)) return;
+        Log("先翻回主页最顶上…");
+        string last = Sig(top);
         Move(win.W * 0.5, win.H * 0.55);
         Platform.Key(Platform.VK_HOME);
         Thread.Sleep(800);
-        for (int i = 0; i < 80; i++)
+        int same = 0;
+        for (int i = 0; i < 40; i++)
         {
-            if (AtTop()) return;
+            top = Top();
+            if (Original(top)) return;
+            var sig = Sig(top);
+            if (sig == last) { if (++same >= 2) { Log("已经在主页最顶上了"); return; } }
+            else same = 0;
+            last = sig;
             Scroll(win.W * 0.5, win.H * 0.55, -S(6000));
             Thread.Sleep(300);
         }
@@ -431,7 +479,7 @@ public static class Collector
 
     record Result(string? Url, bool Loaded, bool Matched, string Opened = "", string OpenedTitle = "");
 
-    static bool toldNotOpened, toldGeometry;
+    static bool toldNotOpened, toldGeometry, toldFirstOpen;
     static double? dotsK, closeK;   // 这次运行里点中过的「···」「×」：离标签右边几个标签高。后面的文章先点这里
     static readonly List<(double X, double Y, string What)> clicks = [];   // 这篇文章在标签栏上点过的位置，存诊断截图时画上
     static string NoCtrlWPath => Path.Combine(dataDir, ".不按CtrlW");
@@ -494,6 +542,7 @@ public static class Collector
     /// 点卡片，等文章在主页标签右边打开成新的当前标签。第一下点击有时只是把微信窗口激活了，没反应就再点一次
     static Box? OpenArticle(Card card, Box profileTab)
     {
+        if (!toldFirstOpen) { toldFirstOpen = true; Log($"点开第一篇：{card.Title}（窗口里的位置 {card.X:F0}, {card.Y:F0}）"); }
         for (int attempt = 0; attempt < 2; attempt++)
         {
             Click(card.X, card.Y);
@@ -728,6 +777,7 @@ public static class Collector
 
     // MARK: 一屏一屏往下扫
 
+    static bool toldCards, toldNoCards;
     static bool Sweep()
     {
         int sameCount = 0;
@@ -776,6 +826,12 @@ public static class Collector
             }
             anchor = null;
             var (cards, notRead) = VisibleCards(boxes, ContentTop);
+            if (!toldCards || cards.Count == 0)
+            {
+                if (cards.Count > 0) Log($"这一屏认出 {cards.Count} 篇：{string.Join(" / ", cards.Select(c => c.Title.Length > 14 ? c.Title[..14] + "…" : c.Title))}");
+                else if (!toldNoCards) { toldNoCards = true; Log("⚠️ 这一屏没认出文章（标题下面那行「阅读 xx」没认出来），先往下翻再看"); Diag("这一屏没认出文章"); }
+                toldCards = true;
+            }
             foreach (var u in notRead) if (unreadable.Add(u)) Log($"⚠️ 有张卡片认不出标题（{u}），可能会漏，跑完补漏时会再看一次");
 
             bool redo = false;
@@ -868,8 +924,8 @@ public static class Collector
                 WaitForIdle();
                 SaveStatus(new() { ["state"] = "running" });
                 Log("▶️ 继续");
-                Platform.BringToFront(wx);
-                Thread.Sleep(600);
+                Activate();
+                Thread.Sleep(300);
                 RefreshWin();
                 lastPos = Platform.Cursor();
             }
@@ -891,6 +947,7 @@ public static class Collector
         }
         bool Flag(string f) => args.Remove(f);
         if (int.TryParse(Take("--max"), out var m)) maxCount = m;
+        _ = int.TryParse(Take("--ui-pid"), out uiPid);
         runId = Take("--run-id") ?? "";
         dataDir = Take("--dir") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "公众号链接采集");
         mdName = Take("--file");
@@ -911,10 +968,24 @@ public static class Collector
         if (ocrTest) return OcrTest();
         if (probeMode) return Probe();
 
-        // 同一时间只跑一个
-        if (File.Exists(pidPath) && int.TryParse(File.ReadAllText(pidPath).Trim(), out var oldPid) && oldPid != Environment.ProcessId)
+        // 同一时间只跑一个。记号可能是上次被强制结束时留下的：那个进程号这时可能已经给了别的程序，只认还活着的本程序。
+        // 界面同时只会开一个采集，所以还活着的就是上次留在后台没退出的（界面被强制关掉时会这样），它会抢鼠标、抢窗口：先让它停，停不下就结束它
+        try { if (uiPid > 0) uiProc = System.Diagnostics.Process.GetProcessById(uiPid); } catch { }
+        if (File.Exists(pidPath) && int.TryParse(File.ReadAllText(pidPath).Trim(), out var oldPid) && oldPid != Environment.ProcessId && oldPid != uiPid)
         {
-            try { if (!System.Diagnostics.Process.GetProcessById(oldPid).HasExited) { stdout.WriteLine($"已经有一个在跑了（进程 {oldPid}），这次不启动"); return 0; } } catch { }
+            try
+            {
+                var old = System.Diagnostics.Process.GetProcessById(oldPid);
+                if (!old.HasExited && old.ProcessName.StartsWith("WXLinks", StringComparison.OrdinalIgnoreCase))
+                {
+                    var note = $"[{Now}] 上次的采集还在后台没退出（进程 {oldPid}），先把它停掉";
+                    stdout.WriteLine(note);
+                    File.AppendAllText(logPath, note + "\n", new UTF8Encoding(false));
+                    File.WriteAllText(stopPath, "stop");
+                    if (!old.WaitForExit(6000)) { old.Kill(); old.WaitForExit(3000); }
+                }
+            }
+            catch { }
         }
         File.WriteAllText(pidPath, Environment.ProcessId.ToString());
         try { File.Delete(stopPath); } catch { }
@@ -940,6 +1011,7 @@ public static class Collector
             FindProfileWindow();
             lastPos = Platform.Cursor();
             var (tab, boxes) = Resumable(() => { RefreshWin(); lastPos = Platform.Cursor(); return EnsureProfile(); });
+            Log($"找到公众号主页（微信窗口 {win.W:F0}x{win.H:F0}，缩放 {Scale * 100:F0}%，主页标签：左 {tab.X:F0} 右 {tab.Right:F0} 高 {tab.H:F0}）");
             account = AccountName(tab, boxes);
             mdName ??= PickMdName(account);
             rec = Records.Load(Path.Combine(dataDir, mdName));

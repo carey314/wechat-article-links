@@ -114,6 +114,18 @@ jobs:
           Get-Content $out -Encoding utf8
           if (-not (Select-String -Path $out -Pattern '文字识别' -Quiet)) { throw "检查没输出结果，退出码 $($p.ExitCode)" }
 
+      - name: 上次被强制结束留下的「正在跑」记号不能挡住这次开始
+        shell: pwsh
+        run: |
+          $d = "$env:RUNNER_TEMP\wxlock"
+          New-Item -ItemType Directory -Force $d | Out-Null
+          Set-Content "$d\.running.pid" $PID   # 记号里的进程号这时是别的程序（这里是本步骤的 pwsh）
+          $out = "$env:RUNNER_TEMP\lock.txt"
+          Start-Process dist/WXLinks-windows.exe -ArgumentList '--engine', '--dir', $d -RedirectStandardOutput $out -NoNewWindow -Wait
+          Get-Content $out -Encoding utf8
+          if (Select-String -Path $out -Pattern '已经有一个在跑了' -Quiet) { throw "旧记号挡住了开始" }
+          if (-not (Select-String -Path $out -Pattern '微信没有打开|中文文字识别' -Quiet)) { throw "没走到检查微信那一步" }
+
       - name: 装中文文字识别（云端电脑默认没有，装不上不影响发布）
         continue-on-error: true
         shell: pwsh

@@ -243,7 +243,7 @@ public partial class MainWindow : Window
             UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8,
         };
-        foreach (var a in new[] { "--engine", "--dir", dataDir, "--run-id", runId }) psi.ArgumentList.Add(a);
+        foreach (var a in new[] { "--engine", "--dir", dataDir, "--run-id", runId, "--ui-pid", Environment.ProcessId.ToString() }) psi.ArgumentList.Add(a);
         if (mode == "trial") { psi.ArgumentList.Add("--max"); psi.ArgumentList.Add("10"); }
         if (mode == "recheck") psi.ArgumentList.Add("--recheck");
         try { File.Delete(Path.Combine(dataDir, ".stop")); } catch { }

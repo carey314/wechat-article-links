@@ -38,9 +38,14 @@ static class Installer
                     try { File.Copy(self, Exe, true); break; }
                     catch (IOException)
                     {
-                        var r = MessageBox.Show("「公众号链接采集」的旧版本正开着，新版本装不进去。\n\n请先关掉它（右下角托盘里有图标的话也要退出），再点「确定」。\n点「取消」就先直接用这一份。",
+                        // 旧版本可能只剩后台的采集进程（界面被强制关掉时会留下，没有窗口，你找不到它），所以由这里替你关
+                        var old = RunningOld();
+                        var r = MessageBox.Show(old.Count > 0
+                                ? "「公众号链接采集」的旧版本还开着（也可能是在后台没退出的采集），新版本装不进去。\n\n点「确定」把旧版本关掉、装上新版本。\n点「取消」就先直接用这一份。"
+                                : "「公众号链接采集」的旧版本正开着，新版本装不进去。\n\n请先关掉它（右下角托盘里有图标的话也要退出），再点「确定」。\n点「取消」就先直接用这一份。",
                             "公众号链接采集", MessageBoxButton.OKCancel, MessageBoxImage.Information);
                         if (r != MessageBoxResult.OK) return false;
+                        foreach (var p in old) { try { p.Kill(); p.WaitForExit(3000); } catch { } }
                     }
                 }
             }
@@ -56,6 +61,14 @@ static class Installer
             return false;   // 装不上（比如没有写权限）就直接用这一份
         }
     }
+
+    /// 正在跑的装好的那份（界面或后台采集）
+    static List<Process> RunningOld() =>
+        Process.GetProcessesByName(Path.GetFileNameWithoutExtension(Exe)).Where(p =>
+        {
+            try { return p.Id != Environment.ProcessId && string.Equals(p.MainModule?.FileName, Exe, StringComparison.OrdinalIgnoreCase); }
+            catch { return false; }
+        }).ToList();
 
     public static string NoteFile => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WXLinks", "安装记录.txt");
 
