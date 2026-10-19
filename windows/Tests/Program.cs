@@ -95,9 +95,29 @@ if (args.Length > 1 && Directory.Exists(args[1]))
             got += $" ··· {b.Dots:F0} × {b.Close:F0}{(b.Found ? "" : "（推算）")}";
             if (e != null)
             {
+                double ed = double.Parse(e[4]), ex = double.Parse(e[5]);
                 bool ok = Math.Abs(tb.X - double.Parse(e[2])) <= 4 && Math.Abs(tb.Right - double.Parse(e[3])) <= 4
-                    && Math.Abs(b.Dots - double.Parse(e[4])) <= 4 && Math.Abs(b.Close - double.Parse(e[5])) <= 4;
+                    && Math.Abs(b.Dots - ed) <= 4 && Math.Abs(b.Close - ex) <= 4;
                 Check(ok, $"录屏帧 {name}：{got}");
+                // 挨个试的顺序：第一个就该是真的「···」/「×」
+                var dc = Vision.DotsCandidates(lum, w, h, tb, null);
+                var cc = Vision.CloseCandidates(lum, w, h, tb, null);
+                Check(dc.Count > 0 && Math.Abs(dc[0] - ed) <= 4 && cc.Count > 0 && Math.Abs(cc[0] - ex) <= 4,
+                    $"录屏帧 {name}：先试的「···」{(dc.Count > 0 ? dc[0] : -1):F0}、「×」{(cc.Count > 0 ? cc[0] : -1):F0}");
+                // 标签认偏了（右边多认 / 少认十几像素、高度认错）时，真的「···」「×」也要在前 3 个里，而且「···」不能先试到「×」
+                foreach (var (dx, dh, what) in new[] { (14.0, 0.0, "右边多认 14"), (-12.0, 0.0, "右边少认 12"), (0.0, 8.0, "高度多认 8") })
+                {
+                    var bad = new Box(tb.X, tb.Y, tb.W + dx, tb.H + dh);
+                    var d2 = Vision.DotsCandidates(lum, w, h, bad, null);
+                    var c2 = Vision.CloseCandidates(lum, w, h, bad, null);
+                    int di = d2.FindIndex(x => Math.Abs(x - ed) <= 5), ci = c2.FindIndex(x => Math.Abs(x - ex) <= 5);
+                    int closeFirst = d2.FindIndex(x => Math.Abs(x - ex) <= 5);
+                    Check(di is >= 0 and < 3 && ci is >= 0 and < 3 && (closeFirst < 0 || closeFirst > di),
+                        $"录屏帧 {name}（标签{what}）：「···」排第 {di + 1}、「×」排第 {ci + 1}");
+                }
+                // 记住的位置要排第一
+                double k = (tb.Right - ed) / tb.H;
+                Check(Math.Abs(Vision.DotsCandidates(lum, w, h, tb, k)[0] - ed) <= 1, $"录屏帧 {name}：记住的「···」位置排第一");
                 continue;
             }
         }

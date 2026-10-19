@@ -44,7 +44,7 @@ public static class Collector
     static double pxPerNotch;          // 滚轮一格页面移动多少像素（开始时量一次）
     static Platform.POINT lastPos;
 
-    static double BandH => S(80);      // 截标签栏截这么高（标签栏实际多高由 Vision 按颜色找）
+    static double BandH => S(96);      // 截标签栏截这么高（标签栏实际多高由 Vision 按颜色找，多截一点没关系）
     static double ContentTop => S(40);
 
     static string Now => DateTime.Now.ToString("HH:mm:ss");
@@ -155,7 +155,9 @@ public static class Collector
 
     // MARK: 诊断截图
 
-    static void Diag(string reason, IEnumerable<string>? extra = null)
+    /// 存一张诊断截图：整个微信窗口，标上认出的当前标签（红框）、「···」「×」可能在的位置（蓝线）、点过的位置（绿十字加序号）；
+    /// 另存一张放大两倍的标签栏，方便看点偏了多少
+    static void Diag(string reason, IEnumerable<string>? extra = null, Box? tab = null, IEnumerable<double>? cands = null)
     {
         try
         {
@@ -176,21 +178,64 @@ public static class Collector
                 using var s = Platform.Capture(new Box(sb.X, sb.Y, sb.Width, sb.Height), new Box(0, 0, sb.Width, sb.Height));
                 bmp = (Bitmap)s.Bitmap.Clone();
             }
-            using (bmp) bmp.Save(Path.Combine(diagDir, name + ".png"), ImageFormat.Png);
+            using (bmp)
+            {
+                bool inWindow = wx != IntPtr.Zero && Platform.Exists(wx);
+                if (inWindow)
+                {
+                    using var g = Graphics.FromImage(bmp);
+                    using var red = new Pen(Color.Red, 2);
+                    using var blue = new Pen(Color.DodgerBlue, 2);
+                    using var green = new Pen(Color.LimeGreen, 3);
+                    using var font = new Font("Microsoft YaHei UI", 10f, FontStyle.Bold);
+                    if (tab is Box t)
+                    {
+                        g.DrawRectangle(red, (float)t.X, (float)t.Y, (float)t.W, (float)t.H);
+                        foreach (var x in cands ?? []) g.DrawLine(blue, (float)x, (float)(t.Bottom + 2), (float)x, (float)(t.Bottom + 14));
+                    }
+                    int i = 0;
+                    foreach (var c in clicks)
+                    {
+                        i++;
+                        float cx = (float)c.X, cy = (float)c.Y;
+                        g.DrawLine(green, cx - 9, cy, cx + 9, cy);
+                        g.DrawLine(green, cx, cy - 9, cx, cy + 9);
+                        g.DrawString($"{i}{c.What}", font, Brushes.Green, cx + 5, cy + 5);
+                    }
+                }
+                bmp.Save(Path.Combine(diagDir, name + ".png"), ImageFormat.Png);
+                if (inWindow)
+                {
+                    int bh = (int)Math.Min(bmp.Height, BandH * 1.5);
+                    using var crop = new Bitmap(bmp.Width * 2, bh * 2);
+                    using (var g = Graphics.FromImage(crop))
+                    {
+                        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+                        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+                        g.DrawImage(bmp, new Rectangle(0, 0, crop.Width, crop.Height), new Rectangle(0, 0, bmp.Width, bh), GraphicsUnit.Pixel);
+                    }
+                    crop.Save(Path.Combine(diagDir, name + "-标签栏放大.png"), ImageFormat.Png);
+                }
+            }
             var txt = new StringBuilder();
             txt.AppendLine($"原因：{reason}");
             txt.AppendLine($"时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}  缩放：{Scale:F2}  滚轮一格：{pxPerNotch:F0}  识别语言：{Platform.OcrLanguage}");
             txt.AppendLine($"系统：{Environment.OSVersion}  上次认出的主页标签：{lastProfileTab}");
             try { txt.AppendLine($"现在认出的当前标签：{(wx != IntPtr.Zero && Platform.Exists(wx) ? ActiveTab() : null)}"); } catch { }
             if (extra != null) foreach (var e in extra) txt.AppendLine(e);
+            if (tab is Box tb) txt.AppendLine($"红框（认出的当前标签）：左 {tb.X:F0} 上 {tb.Y:F0} 右 {tb.Right:F0} 下 {tb.Bottom:F0}");
+            if (cands != null) txt.AppendLine($"蓝线（「···」或「×」可能在的位置）：{string.Join("、", cands.Select(x => x.ToString("F0")))}");
+            int n = 0;
+            foreach (var c in clicks) txt.AppendLine($"绿十字 {++n}（点了{c.What}）：({c.X:F0}, {c.Y:F0})");
+            txt.AppendLine($"记住的位置：「···」离标签右边 {dotsK:F2} 个标签高，「×」{closeK:F2} 个；Ctrl+W {(ctrlWWorks ? "能用或没试" : "不管用")}");
             txt.AppendLine("---- 微信窗口 ----");
             foreach (var w in Platform.Windows().Where(Platform.IsWeChat))
                 txt.AppendLine($"{w.ProcessName} 「{w.Title}」 类名={w.Class} 位置=({w.Bounds.X},{w.Bounds.Y} {w.Bounds.W}x{w.Bounds.H}) 最小化={w.Minimized} {(w.Handle == wx ? "← 公众号窗口" : "")}");
             txt.AppendLine("---- 认出的字（窗口内坐标）----");
             foreach (var b in boxes) txt.AppendLine($"({b.Rect.X,5:F0},{b.Rect.Y,5:F0} {b.Rect.W,4:F0}x{b.Rect.H,3:F0}) {b.Text}");
             File.WriteAllText(Path.Combine(diagDir, name + ".txt"), txt.ToString(), new UTF8Encoding(false));
-            // 只留最近 40 份（每份一张图一个说明）
-            foreach (var old in new DirectoryInfo(diagDir).GetFiles().OrderByDescending(f => f.CreationTimeUtc).Skip(80)) old.Delete();
+            // 只留最近 40 份（每份两张图一个说明）
+            foreach (var old in new DirectoryInfo(diagDir).GetFiles().OrderByDescending(f => f.CreationTimeUtc).Skip(120)) old.Delete();
             Log($"已存诊断截图：诊断\\{name}.png（遇到问题时把「诊断」文件夹发给作者）");
         }
         catch (Exception e) { Log($"存诊断截图失败：{e.Message}"); }
@@ -386,7 +431,24 @@ public static class Collector
 
     record Result(string? Url, bool Loaded, bool Matched, string Opened = "", string OpenedTitle = "");
 
-    static bool toldNotOpened;
+    static bool toldNotOpened, toldGeometry, toldCtrlW, toldDots;
+    static double? dotsK, closeK;   // 这次运行里点中过的「···」「×」：离标签右边几个标签高。后面的文章先点这里
+    static bool ctrlWWorks = true;  // 按 Ctrl+W 能关掉文章标签；不行就改点「×」
+    static readonly List<(double X, double Y, string What)> clicks = [];   // 这篇文章在标签栏上点过的位置，存诊断截图时画上
+    static string NoCtrlWPath => Path.Combine(dataDir, ".不按CtrlW");
+
+    /// 在标签栏上点一下，记下点在哪（诊断截图上会画出来）
+    static void ClickMark(double x, double y, string what)
+    {
+        clicks.Add((x, y, what));
+        Click(x, y);
+    }
+
+    /// 窗口上半截是不是公众号主页（只认上面一块，比整屏快）
+    static bool ProfileOnTop() => IsProfilePage(Snap(new Box(0, 0, win.W, Math.Min(win.H, BandH + S(340)))));
+
+    static List<double> DotsCands(Box tab) { using var s = Grab(new Box(0, 0, win.W, BandH)); return Vision.DotsCandidates(s.Luma, s.Width, s.Height, tab, dotsK); }
+    static List<double> CloseCands(Box tab) { using var s = Grab(new Box(0, 0, win.W, BandH)); return Vision.CloseCandidates(s.Luma, s.Width, s.Height, tab, closeK); }
 
     static Result CopyLink(Card card, Box profileTab)
     {
@@ -406,19 +468,28 @@ public static class Collector
         {
             Platform.Key(Platform.VK_ESCAPE);
             Log($"⚠️ 点了没打开新标签，跳过：{card.Title}");
-            if (!toldNotOpened) { toldNotOpened = true; Diag("点了没打开新标签"); }
+            if (!toldNotOpened) { toldNotOpened = true; Diag("点了没打开新标签", tab: lastProfileTab); }
             return new Result(null, false, false);
         }
         var tab = SettledTab(tab0);
-        var buttons = Buttons(tab);
+        clicks.Clear();
+        if (!toldGeometry)
+        {
+            // 第一篇：把认出的位置记进日志，并存一张标了位置的截图，出问题时对着看
+            toldGeometry = true;
+            var dc = DotsCands(tab);
+            Log($"文章标签：左 {tab.X:F0} 右 {tab.Right:F0} 高 {tab.H:F0}（主页标签左 {profileTab.X:F0}）；「···」可能在 {string.Join("、", dc.Select(x => x.ToString("F0")))}");
+            Diag("第一篇文章打开后", tab: tab, cands: dc);
+        }
 
         // 等加载完：标签从「微信公众平台」换成文章标题
         var t0 = DateTime.Now;
         string tabText = "";
         bool toldSlow = false;
+        double dotsLeft = Buttons(tab).DotsLeft;
         while (true)
         {
-            tabText = TabTitle(tab, buttons.DotsLeft);
+            tabText = TabTitle(tab, dotsLeft);
             if (!IsPlaceholder(tabText)) break;
             double waited = (DateTime.Now - t0).TotalSeconds;
             if (waited > LoadTimeout) break;
@@ -429,30 +500,80 @@ public static class Collector
         bool matched = loaded && SameArticle(tabText, card);
         if (loaded && !matched) Log($"⚠️ 打开的文章和要点的对不上（标签：{tabText}，卡片：{card.Title}）");
 
-        // 点「···」找「复制链接」；还没有就收起菜单等一会儿再点，一直等到加载超时
         double loadWait = (DateTime.Now - t0).TotalSeconds;
-        string? url = null;
-        int tries = 0;
-        bool toldNoMenu = false;
-        while (url == null)
+        string? url = FindAndCopy(tab, profileTab, t0, loaded, out int tries);
+        if (url != null && (loadWait > 3 || tries > 1)) Log($"这篇慢：等加载 {loadWait:F1} 秒，点了 {tries} 次「···」");
+        if (url == null) Log(loaded ? $"⚠️ 没拿到链接：{card.Title}" : $"⚠️ 等了 {(int)LoadTimeout} 秒还没加载出来，先跳过，补漏时再试：{card.Title}");
+
+        if (!CloseTab(tab, profileTab))
         {
-            // 每次点之前重新在标签上找「···」（鼠标先挪开，停在标签上会挡住图标）
+            Diag("文章标签关不掉", [$"文章标签：{tab}"], tab, CloseCands(tab));
+            throw new StopError("文章标签关不掉，已停下（请手动关掉文章、回到公众号主页后再开始，并把「诊断」文件夹发给作者）");
+        }
+        return new Result(url, loaded, matched, loaded ? Normalize(tabText) : "", loaded ? tabText : "");
+    }
+
+    /// 菜单里的字：认出两个以上才算菜单弹出来了（文章标题里偶尔也会有「收藏」这种词）
+    static readonly string[] MenuWords = ["刷新", "复制链接", "调整文字", "全文翻译", "听全文", "分享到朋友圈", "默认浏览器", "浏览记录", "下载内容", "关闭全部", "投诉", "星标"];
+
+    /// 点了「···」之后看菜单：弹没弹出来、有没有「复制链接」
+    static (bool Opened, TextBox? Copy) WaitMenu(double x, Box tab)
+    {
+        double th = tab.H;
+        double x0 = Math.Max(0, x - th * 11), x1 = Math.Min(win.W, x + th * 6);
+        double y0 = Math.Max(0, tab.Y + th * 0.5), y1 = Math.Min(win.H, tab.Bottom + th * 9);
+        bool opened = false;
+        for (int i = 0; i < 6; i++)
+        {
+            Thread.Sleep(200);
+            var boxes = Snap(new Box(x0, y0, x1 - x0, y1 - y0));
+            var copy = boxes.FirstOrDefault(t => { var n = Normalize(t.Text); return n.StartsWith("复制链接") || n.StartsWith("复制网址"); });
+            if (copy != null) return (true, copy);
+            var all = string.Concat(boxes.Select(b => Normalize(b.Text)));
+            opened = MenuWords.Count(all.Contains) >= 2;
+            if (opened && i >= 2) break;   // 菜单出来了但没有「复制链接」：页面还没加载完
+        }
+        return (opened, null);
+    }
+
+    /// 找「···」点开，菜单里认到「复制链接」就点，等剪贴板变化拿链接。
+    /// 「···」可能在的几个位置挨个试：点了没弹出菜单就按 Esc 换下一个；点中了记住位置，后面的文章直接点那里
+    static string? FindAndCopy(Box tab, Box profileTab, DateTime t0, bool loaded, out int tries)
+    {
+        tries = 0;
+        var missed = new List<double>();   // 点了没弹出菜单的位置
+        bool sawMenu = false;
+        while ((DateTime.Now - t0).TotalSeconds < LoadTimeout + 5)
+        {
             Park();
-            buttons = Buttons(tab);
-            Click(buttons.Dots, tab.MidY);
-            tries++;
-            TextBox? item = null;
-            for (int i = 0; i < 5 && item == null; i++)
+            var cur = ActiveTab();
+            // 当前标签不是这篇文章了（多半是点到了「×」或别的标签）：不在这篇上继续点
+            if (cur is not Box c || Math.Abs(c.X - tab.X) > S(40) || c.X <= profileTab.X + S(60))
             {
-                Thread.Sleep(220);
-                // 菜单在「···」下面、向左展开（录屏里「复制链接」在「···」左边约 5~7 个标签高、下面约 3 个标签高）
-                double x0 = Math.Max(0, buttons.Dots - tab.H * 10), x1 = Math.Min(win.W, buttons.Dots + tab.H * 6);
-                var area = new Box(x0, tab.Bottom, x1 - x0, Math.Min(win.H - tab.Bottom, tab.H * 7));
-                item = Snap(area).FirstOrDefault(t =>
+                Log("点「···」时文章标签不见了（可能点到了「×」），这篇先跳过，补漏时再试");
+                return null;
+            }
+            tab = c;
+            var cands = DotsCands(tab);
+            double? next = null;
+            foreach (var x in cands) if (!missed.Any(m => Math.Abs(m - x) < tab.H * 0.25)) { next = x; break; }
+            if (next is not double nx)
+            {
+                Diag("找不到能点开菜单的「···」", [$"文章标签：{tab}", $"试过的位置：{string.Join("、", missed.Select(m => m.ToString("F0")))}"], tab, cands);
+                return null;
+            }
+            tries++;
+            ClickMark(nx, tab.MidY, "···");
+            var (opened, item) = WaitMenu(nx, tab);
+            if (opened)
+            {
+                sawMenu = true;
+                double k = (tab.Right - nx) / tab.H;
+                if (dotsK is not double old || Math.Abs(old - k) > 0.2)
                 {
-                    var n = Normalize(t.Text);
-                    return n.StartsWith("复制链接") || n.StartsWith("复制网址");
-                });
+                    dotsK = k;
+                    if (!toldDots) { toldDots = true; Log($"找到了「···」：在文章标签右边往左 {tab.Right - nx:F0} 像素，后面直接点这里"); }
+                }
             }
             if (item != null)
             {
@@ -460,59 +581,92 @@ public static class Collector
                 Click(item.Rect.MidX, item.Rect.MidY);
                 for (int i = 0; i < 20 && Platform.ClipboardSeq() == before; i++) Thread.Sleep(100);
                 var s = Platform.ClipboardSeq() != before ? Platform.ClipboardText()?.Trim() : null;
-                if (s != null && s.StartsWith("http") && s.Contains("mp.weixin.qq.com")) url = s;
-                else if (s == null) Log("点了「复制链接」，剪贴板没变化");
+                if (s != null && s.StartsWith("http") && s.Contains("mp.weixin.qq.com")) return s;
+                if (s == null) Log("点了「复制链接」，剪贴板没变化");
                 else Log($"剪贴板里不是公众号文章链接：{(s.Length > 60 ? s[..60] : s)}");
-                break;
+                return null;
             }
             Platform.Key(Platform.VK_ESCAPE);
-            if (!toldNoMenu && loaded) { toldNoMenu = true; Diag("点了「···」没看到「复制链接」", [$"文章标签：{tab}  「···」：{buttons.Dots:F0}（{(buttons.Found ? "认出的" : "推算的")}）"]); }
-            if ((DateTime.Now - t0).TotalSeconds > LoadTimeout + 5) break;
-            Thread.Sleep(800);
+            Thread.Sleep(250);
+            if (opened) { Thread.Sleep(700); continue; }   // 菜单出来了，只是还没有「复制链接」：等页面加载完再点同一个位置
+            missed.Add(nx);
         }
-        if (url != null && (loadWait > 3 || tries > 1)) Log($"这篇慢：等加载 {loadWait:F1} 秒，点了 {tries} 次「···」");
-        if (url == null) Log(loaded ? $"⚠️ 没拿到链接：{card.Title}" : $"⚠️ 等了 {(int)LoadTimeout} 秒还没加载出来，先跳过，补漏时再试：{card.Title}");
-
-        if (!CloseTab(tab, profileTab))
-        {
-            Diag("文章标签关不掉");
-            throw new StopError("文章标签关不掉，已停下（请手动关掉文章、回到公众号主页后再开始）");
-        }
-        return new Result(url, loaded, matched, loaded ? Normalize(tabText) : "", loaded ? tabText : "");
+        if (loaded && !sawMenu) Diag("点了「···」一直没弹出菜单", [$"文章标签：{tab}"], tab, DotsCands(tab));
+        return null;
     }
 
-    /// 关掉主页标签右边的这个文章标签：点它右端的「×」，确认当前标签回到了左边（主页）。
-    /// 每次点之前都确认当前标签还是它，免得点到别的标签；点两次不行再按 Ctrl+W（只关当前这一个标签）
+    /// 关掉主页标签右边的这个文章标签，确认回到公众号主页。
+    /// 先按 Ctrl+W（只关当前标签）：按之前确认当前标签就是这篇文章、微信浏览器窗口在最前面；
+    /// 按了没关掉就改点「×」，可能的几个位置挨个试，每次点前都再确认一遍。认不准就返回 false，由调用的地方存诊断截图后停下
     static bool CloseTab(Box tab, Box profileTab)
     {
         bool StillThere(Box? t) => t is Box a && Math.Abs(a.X - tab.X) <= S(40) && a.X > profileTab.X + S(60);
-        bool Back(Box? t) => t is Box a && a.X < tab.X - S(60);
-        for (int round = 0; round < 3; round++)
+        bool IsBack(Box? t) => t is Box a && a.X < tab.X - S(60);
+        void CheckWindow()
+        {
+            if (Platform.Exists(wx)) return;
+            try { File.WriteAllText(NoCtrlWPath, "按 Ctrl+W 会把整个微信浏览器窗口关掉，以后改点「×」"); } catch { }
+            throw new StopError("按 Ctrl+W 把整个微信浏览器窗口关掉了。下次不再按 Ctrl+W，改点「×」。请重新打开公众号主页后再开始，并把运行日志发给作者");
+        }
+        bool WaitBack(int ms)
+        {
+            var end = DateTime.Now.AddMilliseconds(ms);
+            do
+            {
+                Thread.Sleep(200);
+                CheckWindow();
+                Park();
+                var t = ActiveTab();
+                if (IsBack(t)) return true;
+                if (!StillThere(t) && ProfileOnTop()) return true;
+            } while (DateTime.Now < end);
+            return false;
+        }
+
+        Park();
+        var now = ActiveTab();
+        if (IsBack(now)) return true;
+        if (!StillThere(now))
+        {
+            if (ProfileOnTop()) return true;
+            Thread.Sleep(400);
+            now = ActiveTab();
+            if (IsBack(now)) return true;
+            if (!StillThere(now)) return ProfileOnTop();
+        }
+
+        if (ctrlWWorks && !File.Exists(NoCtrlWPath))
+        {
+            CheckUser();
+            if (Platform.Foreground() == wx)
+            {
+                Platform.Chord(Platform.VK_W);
+                if (WaitBack(1600))
+                {
+                    if (!toldCtrlW) { toldCtrlW = true; Log("关文章用 Ctrl+W（只关当前这篇文章的标签）"); }
+                    return true;
+                }
+                ctrlWWorks = false;
+                Log("按 Ctrl+W 没关掉文章标签，改点标签上的「×」");
+            }
+        }
+
+        var tried = new List<double>();
+        for (int i = 0; i < 4; i++)
         {
             Park();
-            var now = ActiveTab();
-            if (Back(now)) return true;
-            if (!StillThere(now)) { Thread.Sleep(400); now = ActiveTab(); if (Back(now)) return true; if (!StillThere(now)) return false; }
+            now = ActiveTab();
+            if (IsBack(now)) return true;
+            if (!StillThere(now)) return ProfileOnTop();
             var cur = (Box)now!;
-            if (round < 2)
-            {
-                var close = Buttons(cur).Close;
-                Move(close, cur.MidY);
-                Thread.Sleep(250);
-                Click(close, cur.MidY);
-            }
-            else
-            {
-                CheckUser();
-                if (Platform.WeChatIsFront()) Platform.Chord(Platform.VK_W);
-            }
-            Thread.Sleep(200);
-            Park();
-            for (int i = 0; i < 8; i++)
-            {
-                if (Back(ActiveTab())) return true;
-                Thread.Sleep(200);
-            }
+            double? next = null;
+            foreach (var x in CloseCands(cur)) if (!tried.Any(t => Math.Abs(t - x) < cur.H * 0.25)) { next = x; break; }
+            if (next is not double nx) break;
+            tried.Add(nx);
+            Move(nx, cur.MidY);   // 鼠标先停上去，「×」才会亮
+            Thread.Sleep(250);
+            ClickMark(nx, cur.MidY, "×");
+            if (WaitBack(1600)) { closeK = (cur.Right - nx) / cur.H; return true; }
         }
         return false;
     }
@@ -809,6 +963,7 @@ public static class Collector
                 lastProfileTab = t;
                 o.AppendLine($"✅ 当前标签：左 {t.X:F0} 右 {t.Right:F0} 高 {t.H:F0}；「···」在 {b.Dots:F0}，「×」在 {b.Close:F0}（{(b.Found ? "认出的" : "按位置推算的")}）");
                 o.AppendLine($"标签上的字：{TabTitle(t, b.DotsLeft)}");
+                o.AppendLine($"「···」可能在：{string.Join("、", DotsCands(t).Select(x => x.ToString("F0")))}；「×」可能在：{string.Join("、", CloseCands(t).Select(x => x.ToString("F0")))}");
             }
             else o.AppendLine("❌ 认不出当前标签（标签栏要是浅色的；鼠标别停在标签上）");
             var boxes = Snap();
@@ -821,7 +976,7 @@ public static class Collector
             var plan = PlannedScroll(boxes, ContentTop);
             o.AppendLine($"可点区域：{top:F0}-{bottom:F0}，计划翻页 {plan.Points:F0} 像素");
             o.AppendLine(tab != null && cards.Count > 0 ? "✅ 看起来没问题，可以开始采集" : "⚠️ 有地方没认出来，请把诊断截图发给作者");
-            Diag("检查", o.ToString().Split('\n'));
+            Diag("检查", o.ToString().Split('\n'), tab, tab is Box t3 ? DotsCands(t3).Concat(CloseCands(t3)) : null);
         }
         catch (Exception e) { o.AppendLine($"出错：{e}"); }
         return Done();

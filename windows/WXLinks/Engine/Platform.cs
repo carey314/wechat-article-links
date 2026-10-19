@@ -271,7 +271,7 @@ public static class Platform
                     if (i > 0 && NeedsSpace(seg[i - 1].Text, seg[i].Text)) text.Append(' ');
                     text.Append(seg[i].Text);
                 }
-                boxes.Add(new TextBox(text.ToString(), new Box(region.X + x0 / k, region.Y + y0 / k, (x1 - x0) / k, (y1 - y0) / k)));
+                boxes.Add(new TextBox(FixMisreads(text.ToString()), new Box(region.X + x0 / k, region.Y + y0 / k, (x1 - x0) / k, (y1 - y0) / k)));
                 seg.Clear();
             }
             foreach (var w in words)
@@ -289,6 +289,9 @@ public static class Platform
         }
         return boxes;
     }
+
+    /// 系统识别常认错、又会影响判断的几个字（2026-10 云端自检：分栏「文章」被认成「文童」，只有「全部 / 文章」的号会认不出是主页）
+    static string FixMisreads(string t) => t.Replace("文童", "文章");
 
     static Bitmap Resize(Bitmap b, int w, int h)
     {
