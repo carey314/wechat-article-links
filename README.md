@@ -3,7 +3,7 @@
 <h1 align="center">公众号链接采集</h1>
 
 <p align="center">把一个公众号的文章链接，按顺序收进一个 md 文件，方便依次学习。<br>
-macOS 小工具，开源免费。</p>
+Mac / Windows 小工具，开源免费（Windows 版是测试版）。</p>
 
 <p align="center">
   <a href="https://carey314.github.io/wechat-article-links/"><b>下载页</b></a> ·
@@ -23,12 +23,16 @@ macOS 小工具，开源免费。</p>
 - 停了再开始，从停下的地方接着采
 - 误碰鼠标会暂停，停手 5 秒自动继续；鼠标甩到屏幕左上角立即停止
 - 应用里能搜标题、双击用浏览器打开、一键复制全部链接
-- 全程在本机完成：认字用 macOS 自带的文字识别，不联网、不调用 AI 服务
+- 全程在本机完成：认字用系统自带的文字识别（macOS 的 Vision / Windows 的 Windows.Media.Ocr），不联网、不调用 AI 服务
 
 ## 下载安装
 
-打开 [下载页](https://carey314.github.io/wechat-article-links/)，或者在 [Releases](https://github.com/carey314/wechat-article-links/releases/latest) 下载 `WXLinks-mac.dmg`。
-Apple 芯片和 Intel 的 Mac 都能用，需要 macOS 14 或更新。
+打开 [下载页](https://carey314.github.io/wechat-article-links/)，或者在 [Releases](https://github.com/carey314/wechat-article-links/releases/latest) 下载：
+
+- Mac：`WXLinks-mac.dmg`，Apple 芯片和 Intel 的 Mac 都能用，需要 macOS 14 或更新
+- Windows（测试版）：`WXLinks-windows.exe`，Windows 10 / 11（64 位），微信 4.x
+
+### Mac
 
 1. 打开 dmg，把「公众号链接采集」拖进「应用程序」
 2. 第一次打开系统会拦一下（没有付费签名）：点「完成」，然后打开 **系统设置 → 隐私与安全性**，在「安全性」里点 **仍要打开**
@@ -40,13 +44,19 @@ Apple 芯片和 Intel 的 Mac 都能用，需要 macOS 14 或更新。
 xattr -dr com.apple.quarantine /Applications/公众号链接采集.app
 ```
 
+### Windows（测试版）
+
+1. 双击 `WXLinks-windows.exe`。提示「Windows 已保护你的电脑」时点 **更多信息** → **仍要运行**
+2. 第一次打开会自动装好：程序放进 `%LOCALAPPDATA%\Programs\公众号链接采集\`，开始菜单里多一个「公众号链接采集」。以后从开始菜单打开，下载的文件可以删掉；下载新版本后打开一次就会替换旧的
+3. 如果应用提示「缺中文文字识别」：**设置 → 时间和语言 → 语言和区域 → 添加语言**，选「中文(简体，中国)」装好，再回应用点「重新检测」。不用另开权限
+
 ## 用法
 
 1. 在微信桌面版里打开要采的公众号主页（有「全部 / 贴图 / 文章 / 视频号」那页）
 2. 应用里选范围（全部采完 / 先试 10 篇 / 只补漏），点「开始采集」
 3. 松开鼠标，等它采完。每篇大约 4 秒
 
-采到的链接默认存在 `文稿/公众号链接采集/<公众号名>.md`，可以在「设置与权限」里改。
+采到的链接默认存在 `文稿/公众号链接采集/<公众号名>.md`（Windows 是「文档\公众号链接采集」），可以在设置页里改。两边的文件格式一样，可以互相接着用。
 旁边的 `<公众号名>.md.已点过.txt` 记着采到哪儿了，删掉就会从头采。
 
 <p align="center"><img src="site/assets/screen-home.png" width="49%" alt="采集页"> <img src="site/assets/screen-setup.png" width="49%" alt="设置与权限"></p>
@@ -62,7 +72,7 @@ xattr -dr com.apple.quarantine /Applications/公众号链接采集.app
 
 **更新版本后权限还要重新开吗？** 不用。如果系统设置里开着、应用里却显示没打开，在列表里选中它点「−」删掉，再回应用点「去打开」。
 
-**有 Windows 版吗？** 正在做。
+**有 Windows 版吗？** 有，目前是测试版，照 Windows 版微信 4.x 的界面单独适配，还没在很多电脑上试过。遇到问题，把数据文件夹里的「诊断」文件夹和「运行日志.txt」发到 [Issues](https://github.com/carey314/wechat-article-links/issues)。
 
 ## 怎么工作的
 
@@ -75,7 +85,7 @@ xattr -dr com.apple.quarantine /Applications/公众号链接采集.app
 
 ## 自己编译
 
-需要 Xcode（或命令行工具 + actool），macOS 14 SDK 以上。
+Mac 版需要 Xcode（或命令行工具 + actool），macOS 14 SDK 以上。Windows 版需要 .NET 10 SDK，见 [windows/README.md](windows/README.md)。
 
 ```
 tools/build.sh            # 本机用，只编 Apple 芯片，输出 output/公众号链接采集.app
@@ -88,12 +98,13 @@ tools/build.sh release    # Apple 芯片 + Intel 通用版，并打成 output/WX
 | `Sources/engine.swift` | 采集引擎（命令行程序）：截屏认字、控制鼠标、写 md。界面在后台启动它，靠 `status.json` 和日志显示进度 |
 | `Resources/` | 应用图标、强调色 |
 | `tools/` | 编译打包脚本、图标生成、安装包里的说明 |
+| `windows/` | Windows 版（C# / WPF）：界面和采集引擎在同一个 exe 里，规则和 Mac 版逐行对照测试 |
 | `site/` | 下载页，推到 main 后自动发布到 GitHub Pages |
 
 - 签名用临时签名（ad-hoc），并把认证要求设成只认程序标识，所以重新编译后系统权限不会失效
 - 签名标识必须是英文：中文标识会让系统文字识别一直报错（`build.sh` 已处理）
 - 调试：`output/公众号链接采集.app/Contents/MacOS/wxlinks-engine --probe` 只看不点，打印认到的标签、卡片和翻页计划
-- 发布：推一个 `v` 开头的 tag（如 `v1.0.1`），GitHub Actions 会编译通用版并发到 Releases
+- 发布：推一个 `v` 开头的 tag（如 `v1.1.0`），GitHub Actions 会编译 Mac 通用版和 Windows 单文件 exe，两边都成功后一起发到 Releases
 
 ## 协议
 

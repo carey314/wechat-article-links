@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>公众号链接采集</title>
-<meta name="description" content="Mac 小工具：在微信桌面版里自动逐篇点开公众号文章、复制链接，按从新到旧的顺序整理进一个 md 文件，方便依次学习。开源免费。">
+<meta name="description" content="Mac / Windows 小工具：在微信桌面版里自动逐篇点开公众号文章、复制链接，按从新到旧的顺序整理进一个 md 文件，方便依次学习。开源免费。">
 <link rel="icon" type="image/png" href="assets/icon-64.png">
 <link rel="apple-touch-icon" href="assets/icon-256.png">
 <meta property="og:title" content="公众号链接采集">
-<meta property="og:description" content="把一个公众号的全部文章链接，按顺序收进一个 md 文件。开源免费的 Mac 小工具。">
+<meta property="og:description" content="把一个公众号的全部文章链接，按顺序收进一个 md 文件。开源免费的 Mac / Windows 小工具。">
 <meta property="og:image" content="https://carey314.github.io/wechat-article-links/assets/screen-home.png">
 <style>
 /* 布局：左文右图的首屏（下载按钮按访问的电脑推荐），下面依次是产出的样子、三步用法、截图、安装说明、常见问题 */
@@ -174,7 +174,7 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; font-size:
           <p class="dl-meta" id="dl-meta">Apple 芯片和 Intel 的 Mac 都能用 · 需要 macOS 14 或更新</p>
           <p class="others" id="dl-others">
             <span>Mac：<a href="https://github.com/carey314/wechat-article-links/releases/latest/download/WXLinks-mac.dmg">WXLinks-mac.dmg</a></span>
-            <span>Windows：准备中</span>
+            <span>Windows（测试版）：<a href="https://github.com/carey314/wechat-article-links/releases/latest/download/WXLinks-windows.exe">WXLinks-windows.exe</a></span>
             <span><a href="https://github.com/carey314/wechat-article-links/releases">全部版本</a></span>
           </p>
         </div>
@@ -230,10 +230,10 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; font-size:
     <section id="install">
       <p class="eyebrow">安装</p>
       <h2>第一次打开，系统会拦一下</h2>
-      <p class="lead">这是没有付费签名的开源小工具，macOS 第一次会提示「无法验证开发者」。按下面做一次就好，以后正常双击。</p>
+      <p class="lead">这是没有付费签名的开源小工具，第一次打开时 macOS 会提示「无法验证开发者」，Windows 会提示「Windows 已保护你的电脑」。按下面做一次就好，以后正常打开。</p>
       <div class="install">
         <div class="card">
-          <h3>装好并打开</h3>
+          <h3>Mac：装好并打开</h3>
           <ol>
             <li>打开下载的 <span class="ui">WXLinks-mac.dmg</span>，把「公众号链接采集」拖进「应用程序」。</li>
             <li>在「应用程序」里双击打开，系统提示拦截时点 <span class="ui">完成</span>。</li>
@@ -243,13 +243,30 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; font-size:
           <div class="cmd"><code id="cmd-xattr">xattr -dr com.apple.quarantine /Applications/公众号链接采集.app</code><button type="button" class="copy" data-copy="cmd-xattr">复制</button></div>
         </div>
         <div class="card">
-          <h3>打开两个权限</h3>
+          <h3>Mac：打开两个权限</h3>
           <ol>
             <li>应用里点「设置与权限」，<span class="ui">辅助功能</span> 和 <span class="ui">录屏与系统录音</span> 各点一次「去打开」。</li>
             <li>在系统设置的列表里打开「公众号链接采集」的开关。</li>
             <li>回到应用点 <span class="ui">重新打开应用</span>，两个都变成绿勾就可以开始了。</li>
           </ol>
           <p class="note">替你点微信要「辅助功能」，看清屏幕上的标题和按钮要「录屏」。只对这个应用生效，随时能在系统设置里关掉。</p>
+        </div>
+        <div class="card" id="win-install">
+          <h3>Windows（测试版）：打开</h3>
+          <ol>
+            <li>双击下载的 <span class="ui">WXLinks-windows.exe</span>。提示「Windows 已保护你的电脑」时，点 <span class="ui">更多信息</span>，再点 <span class="ui">仍要运行</span>。</li>
+            <li>第一次打开会自动装好：程序放进「%LOCALAPPDATA%\Programs\公众号链接采集」，开始菜单里多一个「公众号链接采集」。以后从开始菜单打开就行，下载的那个文件可以删掉。</li>
+            <li>需要 Windows 10 或 11（64 位）和微信 4.x。不用额外开权限。</li>
+          </ol>
+        </div>
+        <div class="card">
+          <h3>Windows：添加中文文字识别</h3>
+          <ol>
+            <li>应用首页如果提示「缺中文文字识别」，打开 <span class="ui">设置 → 时间和语言 → 语言和区域</span>。</li>
+            <li>点 <span class="ui">添加语言</span>，选 <span class="ui">中文(简体，中国)</span>，按默认选项装好（不用把它设成显示语言）。</li>
+            <li>回到应用的「设置与检查」点 <span class="ui">重新检测</span>，变成绿勾就可以开始了。</li>
+          </ol>
+          <p class="note">程序靠 Windows 自带的文字识别看清微信里的标题和按钮，中文简体系统一般已经有了。</p>
         </div>
       </div>
     </section>
@@ -258,12 +275,12 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; font-size:
       <p class="eyebrow">常见问题</p>
       <h2>用之前想知道的</h2>
       <div class="faq">
-        <details><summary>它是怎么拿到链接的？会把我的数据传到网上吗？</summary><p>它照着你手动操作的样子来：截屏认出文章标题的位置，点开文章，点右上角「···」里的「复制链接」，再关掉。认字用的是 macOS 自带的文字识别，全程在你的电脑上完成，不联网、不调用任何 AI 服务，采到的链接只存在你自己电脑的文件夹里。</p></details>
+        <details><summary>它是怎么拿到链接的？会把我的数据传到网上吗？</summary><p>它照着你手动操作的样子来：截屏认出文章标题的位置，点开文章，点右上角「···」里的「复制链接」，再关掉。认字用的是系统自带的文字识别（Mac 用 macOS 的，Windows 用 Windows 的），全程在你的电脑上完成，不联网、不调用任何 AI 服务，采到的链接只存在你自己电脑的文件夹里。</p></details>
         <details><summary>会不会被封号？</summary><p class="warn">自动操作微信不符合微信的用户协议，存在被限制账号的可能，请自行判断、自担风险。工具每篇之间会停顿，每 40 篇歇半分钟，尽量模仿正常浏览的节奏，但不能保证没有风险。</p></details>
         <details><summary>采 700 篇要多久？</summary><p>每篇大约 4 秒（文章加载慢的会多等），700 篇加上翻页和最后补漏，一个小时左右。可以分几次采，停了再开始会接着采。</p></details>
         <details><summary>为什么要用浅色模式？</summary><p>程序靠颜色认出微信标签栏里当前打开的是哪一页，目前只适配了浅色模式。深色模式下应用会提醒你切换。</p></details>
         <details><summary>采集时能用电脑做别的事吗？</summary><p>不能。它要用鼠标操作微信，而且靠截屏看画面，所以采集时微信要在最前面、不能被别的窗口挡住。你一动鼠标它就暂停，停手 5 秒后自动继续。</p></details>
-        <details><summary>有 Windows 版吗？</summary><p>正在做。Windows 版微信的界面和 Mac 不一样，要单独适配，做好后会在这个页面提供下载。</p></details>
+        <details><summary>有 Windows 版吗？</summary><p>有，目前是测试版：照 Windows 版微信 4.x 的界面单独适配的，还没在很多电脑上试过。遇到问题，在应用的「设置与检查」里打开数据文件夹，把「诊断」文件夹和「运行日志.txt」发到 <a href="https://github.com/carey314/wechat-article-links/issues">问题反馈</a>。</p></details>
       </div>
     </section>
   </main>
@@ -278,6 +295,7 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; font-size:
 (function () {
   var REPO = 'carey314/wechat-article-links';
   var MAC_ASSET = 'WXLinks-mac.dmg';
+  var WIN_ASSET = 'WXLinks-windows.exe';
   var btn = document.getElementById('dl-btn');
   var label = document.getElementById('dl-label');
   var meta = document.getElementById('dl-meta');
@@ -297,21 +315,33 @@ footer { border-top: 1px solid var(--line); padding-block: 32px 48px; font-size:
     label.textContent = text;
     meta.textContent = note;
   }
-  if (os === 'windows') disable('Windows 版准备中', '你用的是 Windows。目前只有 Mac 版，Windows 版做好后会在这里提供下载。');
+  var WIN_META = '测试版 · Windows 10 / 11（64 位）· 第一次打开会被拦一下，做法见下面「安装」';
+  if (os === 'windows') {
+    btn.href = 'https://github.com/' + REPO + '/releases/latest/download/' + WIN_ASSET;
+    label.textContent = '下载 Windows 版（测试版）';
+    meta.textContent = WIN_META;
+  }
   if (os === 'mobile') disable('请在电脑上打开', '这是电脑上用的工具。把这个网址发到电脑上打开就能下载：carey314.github.io/wechat-article-links');
-  if (os === 'other') meta.textContent = '目前只有 Mac 版（Apple 芯片和 Intel 都能用，需要 macOS 14 或更新）。';
+  if (os === 'other') meta.textContent = '有 Mac 版（macOS 14 或更新）和 Windows 版（测试版，Windows 10 / 11），下载链接在下面。';
 
   // 显示最新版本号、大小和发布日期；取不到就保持默认文字
   fetch('https://api.github.com/repos/' + REPO + '/releases/latest')
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (rel) {
-      if (!rel || os !== 'mac') return;
-      var a = (rel.assets || []).filter(function (x) { return x.name === MAC_ASSET; })[0];
-      var size = a ? (a.size / 1048576).toFixed(1) + ' MB' : '';
+      if (!rel || (os !== 'mac' && os !== 'windows')) return;
+      var name = os === 'mac' ? MAC_ASSET : WIN_ASSET;
+      var a = (rel.assets || []).filter(function (x) { return x.name === name; })[0];
+      if (!a) return;
+      var size = (a.size / 1048576).toFixed(1) + ' MB';
       var date = (rel.published_at || '').slice(0, 10);
-      label.textContent = '下载 Mac 版 ' + rel.tag_name;
-      meta.innerHTML = '<b>' + rel.tag_name + '</b>' + (size ? ' · ' + size : '') + (date ? ' · ' + date + ' 发布' : '') +
-        ' · Apple 芯片和 Intel 都能用 · 需要 macOS 14 或更新';
+      var head = '<b>' + rel.tag_name + '</b> · ' + size + (date ? ' · ' + date + ' 发布' : '');
+      if (os === 'mac') {
+        label.textContent = '下载 Mac 版 ' + rel.tag_name;
+        meta.innerHTML = head + ' · Apple 芯片和 Intel 都能用 · 需要 macOS 14 或更新';
+      } else {
+        label.textContent = '下载 Windows 版 ' + rel.tag_name + '（测试版）';
+        meta.innerHTML = head + ' · ' + WIN_META;
+      }
     })
     .catch(function () {});
 
